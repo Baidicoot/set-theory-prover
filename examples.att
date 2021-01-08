@@ -1,0 +1,42 @@
+Definition id := fun (A: Set) (x: A) => x.
+
+Definition True := forall (P: Set), P -> P.
+
+Definition False := forall (P: Set), P.
+
+Definition ~ := fun (A: Set) => A -> False.
+
+Definition Prod := fun (A B: Set) => forall (C: Set), (A -> B -> C) -> C.
+
+Definition pair := fun (A B: Set) (a: A) (b: B) => (fun (C: Set) (f: A -> B -> C) => (f a) b) : Prod A B.
+
+Definition fst := fun (A B: Set) (p: Prod A B) => (p A) (fun (x: A) (y: B) => x).
+Definition snd := fun (A B: Set) (p: Prod A B) => (p B) (fun (x: A) (y: B) => y).
+
+Definition Sum := fun (A B: Set) => forall (C: Set), (A -> C) -> (B -> C) -> C.
+
+Definition inl := fun (A: Set) (x: A) (B: Set) => (fun (C: Set) (f: A -> C) (_: B -> C) => f x) : Sum A B.
+Definition inl := fun (B: Set) (y: B) (A: Set) => (fun (C: Set) (_: A -> C) (g: B -> C) => g y) : Sum A B.
+
+Axiom ExcludedMiddle : forall (P: Set), Sum P (~ P).
+
+Definition Exists := fun (A: Set) (B: A -> Set) => forall (C: Set), (forall (x: A), (B x) -> C) -> C.
+
+Definition exist := fun (A: Set) (B: A -> Set) (x: A) (p: B x) =>
+    (fun (C: Set) (f: forall (x: A), (B x) -> C) => f x p) : Exists A B.
+
+Definition Inhabited := fun (A: Set) => A.
+
+Definition exists_inhabited_set := (exist Set Inhabited True id) : Exists Set Inhabited.
+
+Definition Eq := fun (A: Set) (x y: A) => forall (P: A -> Set), (P x) -> (P y).
+
+Definition eq_refl := fun (A: Set) (x: A) => (fun (P: A -> Set) (H: P x) => H) : Eq A x x.
+
+Definition cast := fun (x y: Set) (H: Eq Set x y) (p: x) => (H Inhabited p) : y.
+
+Definition Neq := fun (A: Set) (x y: A) => ~ (Eq A x y).
+
+Definition true_neq_false := (fun (H: Eq Set True False) => cast True False H id) : Neq Set True False.
+
+Definition false_uninhabited := (fun (H: Inhabited False) => (H : False)) : ~ (Inhabited False).
