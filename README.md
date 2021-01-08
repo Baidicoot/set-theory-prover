@@ -1,5 +1,5 @@
 # ATT
-A (very minimal) Type Theory I threw together in an attempt to stave off the boredom during lockdown, which, in the end, yeilded little avail. ATT has:
+A (very minimal) Type Theory I threw together in an attempt to stave off the boredom during lockdown, which, in the end, yielded little avail. ATT has:
 - universal quantifiers (`forall (var: type), exp`) and normal implication (`A -> B`, desugars to `forall (_: A), B`)
 - typed and untyped lambda-abstractions (`fun (var: type) => exp` and `lam var => exp` respectively)
 - impredicative universes (`Set : Set`) (que gasps)
