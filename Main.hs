@@ -14,17 +14,17 @@ prompt text = do
     hFlush stdout
     getLine
 
-doLines :: IORef (CommandState,Universe) -> String -> IO ()
+doLines :: IORef CommandState -> String -> IO ()
 doLines state l = do
-    (s,u) <- readIORef state
+    s@(_,_,u) <- readIORef state
     let (t,log) = runRes u (interpret l s)
     case t of
-        Right ((out,s'),u') -> do
+        Right ((out,s'),_) -> do
             mapM_ print out
-            writeIORef state (s',u')
+            writeIORef state s'
         Left e -> putStrLn (e ++ "\n")
 
-repl :: IORef (CommandState,Universe) -> IO ()
+repl :: IORef CommandState -> IO ()
 repl state = do
     l <- trim <$> prompt "att> "
     case l of
@@ -36,4 +36,4 @@ repl state = do
         _ -> doLines state l >> repl state
 
 main :: IO ()
-main = newIORef (emptyState,0) >>= repl
+main = newIORef emptyState >>= repl

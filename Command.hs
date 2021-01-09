@@ -1,6 +1,7 @@
 module Command where
 import TT
 import Control.Monad.Except
+import Control.Monad.State
 import Data.List
 
 data Command
@@ -78,31 +79,37 @@ instance Show CommandOutput where
         Nothing -> "Axiom '" ++ n ++ "' : " ++ show t ++ ".") c) ++ "\n"
     show (PrintGraph g) = showOrdering g
 
-type CommandState = (Ctx,OrderingGraph)
+type CommandState = (Ctx,OrderingGraph,Universe)
 
 emptyState :: CommandState
-emptyState = ([],[])
+emptyState = ([],[],0)
 
 docmd :: Command -> CommandState -> Res (CommandOutput,CommandState)
-docmd (Axiom n e) (ctx,ord) = do
+docmd (Axiom n e) (ctx,ord,u) = do
+    put u
     (_,ord) <- inferWithOrderCheck ctx ord e
     x <- eval ctx e
-    pure (DefAxiom n x,((n,(x,Nothing)):ctx,ord))
-docmd (Define n e) (ctx,ord) = do
+    u <- get
+    pure (DefAxiom n x,((n,(x,Nothing)):ctx,ord,u))
+docmd (Define n e) (ctx,ord,u) = do
+    put u
     (t,ord) <- inferWithOrderCheck ctx ord e
     x <- eval ctx e
-    pure (Defined n t x,((n,(t,Just x)):ctx,ord))
-docmd (Check e) (ctx,ord) = do
+    u <- get
+    pure (Defined n t x,((n,(t,Just x)):ctx,ord,u))
+docmd (Check e) (ctx,ord,u) = do
+    put u
     (t,_) <- inferWithOrderCheck ctx ord e
-    pure (Checked t,(ctx,ord))
-docmd (Eval e) (ctx,ord) = do
+    pure (Checked t,(ctx,ord,u))
+docmd (Eval e) (ctx,ord,u) = do
+    put u
     inferWithOrderCheck ctx ord e
     x <- eval ctx e
-    pure (Evaluated x,(ctx,ord))
-docmd (Print ns) (ctx,ord) = do
+    pure (Evaluated x,(ctx,ord,u))
+docmd (Print ns) (ctx,ord,u) = do
     defs <- mapM (\n -> case lookup n ctx of
         Just d -> pure (n,d)
         Nothing -> throwError ("identifier \"" ++ show n ++ "\" not defined")) ns
-    pure (PrintCtx defs,(ctx,ord))
-docmd PrintAll (ctx,ord) = pure (PrintCtx (reverse ctx),(ctx,ord))
-docmd PrintUniverses (ctx,ord) = pure (PrintGraph ord,(ctx,ord))
+    pure (PrintCtx defs,(ctx,ord,u))
+docmd PrintAll (ctx,ord,u) = pure (PrintCtx (reverse ctx),(ctx,ord,u))
+docmd PrintUniverses (ctx,ord,u) = pure (PrintGraph ord,(ctx,ord,u))
