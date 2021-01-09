@@ -2,7 +2,7 @@
 A (very minimal) Type Theory I threw together in an attempt to stave off the boredom during lockdown, which, in the end, yielded little avail. ATT has:
 - universal quantifiers (`forall (var: type), exp`) and normal implication (`A -> B`, desugars to `forall (_: A), B`)
 - typed and untyped lambda-abstractions (`fun (var: type) => exp` and `lam var => exp` respectively)
-- impredicative universes (`Set : Set`) (que gasps)
+- predicative universes - internally ATT builds up a directed graph representing the ordering of the universes, and checks if it is well-founded. Try `id True id`!
 - *very* primitive 'holes' (i.e. `id Set _` will declare that ATT has `found hole of type Set`) and annotations (`x : T`)
 - nothing in the way of type inference whatsoever! (except for `(lam var => exp) : forall (x: A), B`)
 

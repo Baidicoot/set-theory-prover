@@ -2,14 +2,42 @@ module TT where
 
 import Data.List
 import Control.Monad.Except
+import Control.Monad.State
 import Control.Monad.Writer
 import Data.Char
 
 type Name = String
 
+type Universe = Int
+
+data UniverseOrdering
+    = Universe :>: Universe
+    deriving(Show)
+
+type OrderingGraph = [(Universe,[Universe])]
+
+insertEdge :: Universe -> Universe -> OrderingGraph -> OrderingGraph
+insertEdge from to ((u,us):gs) | from == u && to `elem` us = (u,us):gs
+insertEdge from to ((u,us):gs) | from == u = (u,to:us):gs
+insertEdge from to (n:gs) = n:insertEdge from to gs
+insertEdge from to [] = [(from,[to])]
+
+acyclic :: Universe -> [Universe] -> OrderingGraph -> Bool
+acyclic n vs g | n `elem` vs = False
+acyclic n vs g = case lookup n g of
+    Just ch -> all (\v -> acyclic v (n:vs) g) ch
+    Nothing -> True
+
+appConstraints :: OrderingGraph -> [UniverseOrdering] -> Res OrderingGraph
+appConstraints g (i :>: j:cs) = do
+    let g' = insertEdge j i g
+    unless (acyclic j [] g') (throwError ("could not add universe constraint Set." ++ show i ++ " > Set." ++ show j))
+    appConstraints g' cs
+appConstraints g [] = pure g
+
 data Exp
     = Ann Exp Exp
-    | Set
+    | Set Universe
     | Hole
     | Pi (Abstraction Exp)
     -- variable is marked with a type if free
@@ -30,7 +58,7 @@ data ValVar
 
 data Val
     = VApp ValVar [Val]
-    | VSet
+    | VSet Universe
     | VLam (Abstraction Val)
     | VPi (Abstraction Val)
     deriving(Eq)
@@ -72,7 +100,7 @@ showNames us ns (VPi abs) =
         else parens t ++ " -> " ++ x
 showNames us ns (VApp (VVar i) vs) = (if length ns <= i then show i else ns !! i) ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VApp (VFree i) vs) = i ++ concatMap ((' ':) . parens . showNames us ns) vs
-showNames us ns VSet = "Set"
+showNames us ns (VSet i) = "Set." ++ show i
 
 instance Show Val where
     show = showNames names []
@@ -89,10 +117,19 @@ showEnv env = "[" ++ intercalate ", " (fmap (\x -> case x of
 type Ctx = [(Name,(Val,Maybe Val))]
 -- evaluation environments - should NOT include references to itself!
 type Env = [Maybe Val]
-type Res = ExceptT String (Writer [String])
+type Res = StateT Universe (ExceptT String (Writer [UniverseOrdering]))
 
-debug :: String -> Res ()
-debug s = tell [s]
+runRes :: Universe -> Res a -> (Either String (a,Universe),[UniverseOrdering])
+runRes u r = runWriter (runExceptT (runStateT r u))
+
+freshUniverse :: Res Universe
+freshUniverse = do
+    u <- get
+    put (u+1)
+    pure u
+
+constrain :: UniverseOrdering -> Res ()
+constrain c = tell [c]
 
 trace :: String -> Res a -> Res a
 trace s m = m `catchError` (throwError . (++"\n"++s))
@@ -108,7 +145,7 @@ modifFree f n (VApp (VVar i) vs) | i >= n = VApp (VVar (f i)) (fmap (modifFree f
 modifFree f n (VApp v vs) = VApp v (fmap (modifFree f n) vs)
 modifFree f n (VLam abs) = VLam (modifAbs f n abs)
 modifFree f n (VPi abs) = VPi (modifAbs f n abs)
-modifFree _ _ VSet = VSet
+modifFree _ _ (VSet i) = VSet i
 
 substValAbs :: Ctx -> Int -> Val -> Abstraction Val -> Res (Abstraction Val)
 substValAbs g n x (Abs d r) = do
@@ -124,7 +161,7 @@ substVal g n x e@(VApp (VVar i) xs) | i == n = trace ("while substituting " ++ s
 substVal g n x (VApp i xs) = VApp i <$> mapM (substVal g n x) xs
 substVal g n x (VLam abs) = VLam <$> substValAbs g n x abs
 substVal g n x (VPi abs) = VPi <$> substValAbs g n x abs
-substVal g n x VSet = pure VSet
+substVal g n x (VSet i) = pure (VSet i)
 
 evalAbs :: Ctx -> Abstraction Exp -> Res (Abstraction Val)
 evalAbs g (Abs d r) = do
@@ -136,7 +173,7 @@ eval :: Ctx -> Exp -> Res Val
 eval g (Var i _ _) = pure (VApp (VVar i) [])
 eval g (Free n) = pure (VApp (VFree n) [])
 eval g (Ann x t) = eval g x
-eval g Set = pure VSet
+eval g (Set i) = pure (VSet i)
 eval g (Pi abs) = trace ("while evaluating Pi " ++ show abs) (VPi <$> evalAbs g abs)
 eval g (App f x) = trace ("while evaluating App " ++ show f ++ " " ++ show x) $ do
     f' <- eval g f
@@ -159,7 +196,7 @@ ehnf _ v = pure v
 match :: Ctx -> Val -> Val -> Res ()
 match g v0@(VPi ab) v1@(VPi bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
 match g v0@(VLam ab) v1@(VLam bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
-match g VSet VSet = pure ()
+match g (VSet i) (VSet j) = constrain (j :>: i)
 match g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b =
     trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ mapM_ (uncurry (match g)) (zip as bs)
 match g a@(VApp (VFree n) xs) b = trace ("while expanding definition of " ++ n) $ case lookup n g of
@@ -178,24 +215,13 @@ matchAbs :: Ctx -> Abstraction Val -> Abstraction Val -> Res ()
 matchAbs g (Abs (Just a) b) (Abs (Just x) y) = match g a x >> match g b y
 matchAbs g (Abs _ a) (Abs _ b) = match g a b
 
-quoteAbs :: Abstraction Val -> Abstraction Exp
-quoteAbs (Abs (Just t) e) = Abs (Just (quote t)) (quote e)
-quoteAbs (Abs Nothing e) = Abs Nothing (quote e)
-
-quote :: Val -> Exp
-quote (VApp (VVar n) vs) = foldl App (Var n Nothing Nothing) (fmap quote vs)
-quote (VApp (VFree n) vs) = foldl App (Free n) (fmap quote vs)
-quote VSet = Set
-quote (VLam abs) = Lam (quoteAbs abs)
-quote (VPi abs) = Pi (quoteAbs abs)
-
 markFree :: Int -> Val -> Exp -> Exp
 markFree n x (Var i _ o) | n == i = Var i (Just x) o
 markFree n x (Lam abs) = Lam (markFreeAbs n x abs)
 markFree n x (Pi abs) = Pi (markFreeAbs n x abs)
 markFree n x (App f a) = App (markFree n x f) (markFree n x a)
 markFree n x (Ann e t) = Ann (markFree n x e) (markFree n x t)
-markFree _ _ Set = Set
+markFree _ _ (Set i) = Set i
 markFree _ _ (Free n) = Free n
 markFree _ _ (Var i t o) = Var i t o
 markFree _ _ Hole = Hole
@@ -204,60 +230,64 @@ markFreeAbs :: Int -> Val -> Abstraction Exp -> Abstraction Exp
 markFreeAbs n x (Abs d r) = Abs (fmap (markFree n x) d) (markFree (n+1) (modifFree (+1) 0 x) r)
 
 infer :: Ctx -> Exp -> Res Val
-infer g Set = pure VSet
+infer g (Set i) = pure (VSet i)
 infer g (Var i (Just t) n) = pure t
 infer g (Free n) = case lookup n g of
     Just (t,_) -> pure t
     Nothing -> throwError ("undefined identifier " ++ show n)
 infer g (Ann x t) = do
-    check g t Set
-    check g x t
-    eval g t
+    i <- freshUniverse
+    check g t (VSet i)
+    t' <- eval g t
+    check g x t'
+    pure t'
 infer g (Lam (Abs (Just t) x)) = do
-    check g t Set
+    i <- freshUniverse
+    check g t (VSet i)
     dt <- eval g t
     --debug ("marked variable in " ++ show x ++ " as free of type " ++ show (modifFree (+1) 0 dt))
     rt <- infer g (markFree 0 (modifFree (+1) 0 dt) x)
     pure (VPi (Abs (Just dt) rt))
 infer g (Pi (Abs (Just d) r)) = do
-    check g d Set
+    i <- freshUniverse
+    j <- freshUniverse
+    k <- freshUniverse
+    check g d (VSet i)
     dt <- eval g d
-    --debug ("marked variable in " ++ show r ++ " as free of type " ++ show dt)
-    check g (markFree 0 (modifFree (+1) 0 dt) r) Set
-    --debug "exited body"
-    pure VSet
+    check g (markFree 0 (modifFree (+1) 0 dt) r) (VSet j)
+    constrain (k :>: i)
+    constrain (k :>: j)
+    pure (VSet k)
 infer g (App f x) = do
     s <- infer g f >>= ehnf g
     case s of
         VPi (Abs (Just d) _) -> do
-            check g x (quote d)
+            check g x d
             x' <- eval g x
             evalApp g s x'
         _ -> throwError ("non-function application of \"" ++ show s ++ "\" to \"" ++ show x ++ "\"")
 infer _ x = throwError ("could not infer type of \"" ++ show x ++ "\"")
 
-matchExp :: Ctx -> Exp -> Exp -> Res ()
-matchExp g a b = do
-    av <- eval g a
-    bv <- eval g b
-    match g av bv
-
-check :: Ctx -> Exp -> Exp -> Res ()
-check g (Lam (Abs t x)) (Pi (Abs (Just d) r)) = do
+check :: Ctx -> Exp -> Val -> Res ()
+check g (Lam (Abs t x)) (VPi (Abs (Just d) r)) = do
     case t of
-        Just t -> matchExp g t d
+        Just t -> do
+            i <- freshUniverse
+            check g t (VSet i)
+            t <- eval g t
+            match g t d
         _ -> pure ()
-    --rhs has already been kind-checked
-    --check g d Set
-    vd <- eval g d
-    --debug ("marked variable in " ++ show x ++ " as free of type " ++ show vd)
-    check g (markFree 0 (modifFree (+1) 0 vd) x) r
-check g Hole t = do
-    t' <- eval g t
-    throwError ("found hole of type: " ++ show t' ++ "\nin environment: " ++ showCtx g)
+    check g (markFree 0 (modifFree (+1) 0 d) x) r
+check g Hole t = throwError ("found hole of type: " ++ show t ++ "\nin environment: " ++ showCtx g)
 check g x t = do
     xt <- infer g x
-    matchExp g (quote xt) t
+    match g xt t
+
+inferWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Res (Val,OrderingGraph)
+inferWithOrderCheck g gr e = do
+    (v,c) <- listen (infer g e)
+    gr <- appConstraints gr c
+    pure (v,gr)
 
 showPar :: Show x => x -> String
 showPar x | ' ' `elem` show x = "(" ++ show x ++ ")"

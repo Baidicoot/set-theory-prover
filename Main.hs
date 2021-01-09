@@ -1,7 +1,8 @@
 module Main where
 
-import Command (CommandState)
+import Command (CommandState,emptyState)
 import Parser (interpret,trim)
+import TT (runRes,Universe)
 import System.IO
 import Control.Monad.Except
 import Control.Monad.Writer
@@ -13,17 +14,17 @@ prompt text = do
     hFlush stdout
     getLine
 
-doLines :: IORef CommandState -> String -> IO ()
+doLines :: IORef (CommandState,Universe) -> String -> IO ()
 doLines state l = do
-    s <- readIORef state
-    let (t,log) = runWriter (runExceptT (interpret l s))
+    (s,u) <- readIORef state
+    let (t,log) = runRes u (interpret l s)
     case t of
-        Right (out,s') -> do
-            writeIORef state s'
+        Right ((out,s'),u') -> do
             mapM_ print out
+            writeIORef state (s',u')
         Left e -> putStrLn (e ++ "\n")
 
-repl :: IORef CommandState -> IO ()
+repl :: IORef (CommandState,Universe) -> IO ()
 repl state = do
     l <- trim <$> prompt "att> "
     case l of
@@ -35,4 +36,4 @@ repl state = do
         _ -> doLines state l >> repl state
 
 main :: IO ()
-main = newIORef ([] :: CommandState) >>= repl
+main = newIORef (emptyState,0) >>= repl

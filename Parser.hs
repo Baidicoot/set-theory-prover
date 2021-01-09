@@ -144,32 +144,47 @@ indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
 indexOf _ a = Nothing
 
-elab :: [Var] -> AST -> Exp
+elab :: [Var] -> AST -> Res Exp
 elab ns (ASTVar v) = case indexOf ns (User v) of
-    Just i -> Var i Nothing (Just v)
-    Nothing -> Free v
-elab ns (ASTAnn a b) = Ann (elab ns a) (elab ns b)
-elab ns ASTSet = Set
-elab ns ASTHole = Hole
-elab ns (ASTForall n a b) = Pi (Abs (Just (elab ns a)) (elab (n:ns) b))
-elab ns (ASTLam n x) = Lam (Abs Nothing (elab (n:ns) x))
-elab ns (ASTLamTy n t x) = Lam (Abs (Just (elab ns t)) (elab (n:ns) x))
-elab ns (ASTApp f x) = App (elab ns f) (elab ns x)
+    Just i -> pure (Var i Nothing (Just v))
+    Nothing -> pure (Free v)
+elab ns (ASTAnn a b) = do
+    a <- elab ns a
+    b <- elab ns b
+    pure (Ann a b)
+elab ns ASTSet = Set <$> freshUniverse
+elab ns ASTHole = pure Hole
+elab ns (ASTForall n a b) = do
+    a <- elab ns a
+    b <- elab (n:ns) b
+    pure (Pi (Abs (Just a) b))
+elab ns (ASTLam n x) = do
+    x <- elab (n:ns) x
+    pure (Lam (Abs Nothing x))
+elab ns (ASTLamTy n t x) = do
+    t <- elab ns t
+    x <- elab (n:ns) x
+    pure (Lam (Abs (Just t) x))
+elab ns (ASTApp f x) = do
+    f <- elab ns f
+    x <- elab ns x
+    pure (App f x)
 
 parse :: String -> Res Exp
-parse = fmap (elab []) . parseParExp . fst . tokenize
+parse = elab [] <=< parseParExp . fst . tokenize
 
 parseCommand :: [ParExp] -> Res Command
 parseCommand xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
-            x <- fmap (elab []) (parseParExp ts)
+            x <- parseParExp ts >>= elab []
             pure (Axiom n x)
         (Tok "Definition":Tok n:Tok ":=":ts) -> do
-            x <- fmap (elab []) (parseParExp ts)
+            x <- parseParExp ts >>= elab []
             pure (Define n x)
-        (Tok "Check":ts) -> fmap (Check . elab []) (parseParExp ts)
-        (Tok "Eval":ts) -> fmap (Eval . elab []) (parseParExp ts)
+        (Tok "Check":ts) -> fmap Check (parseParExp ts >>= elab [])
+        (Tok "Eval":ts) -> fmap Eval (parseParExp ts >>= elab [])
         [Tok "Print",Tok "All"] -> pure PrintAll
+        [Tok "Print",Tok "Universes"] -> pure PrintUniverses
         (Tok "Print":xs) -> fmap Print (parseIdents xs)
         xs -> throwError ("unrecognised sequence: '" ++ unwords (fmap show xs) ++ "'")
 
