@@ -11,7 +11,7 @@ It is interacted with using a (quite aesthetic) 'vernacular' (if it can possibly
 - the ability to add axioms to the context (`Axiom name : type`)
 - the ability to check the types of expressions (`Check exp`)
 - the ability to evaluate expressions (`Eval exp`)
-- the ability to print definitions or axioms (`Print name`) or the entire context (`Print All`).
+- the ability to print definitions or axioms (`Print name`) or the entire context (`Print All`), or the universe ordering graph (`Print Universes`).
 
 One point of minor interest is the handling of global identifiers in types and expressions - in ATT, their δ-expansion is delayed until the name is incompatibly matched with another type, at which point it is unfolded. For example, in the environment given by `Definition id := fun (A: Set) (x: A) => x`, only when attempting to match `id Set` with, say, `fun (y: Set) => y`, is the definition of `id` unfolded.
 

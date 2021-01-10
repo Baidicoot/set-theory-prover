@@ -1,5 +1,6 @@
 module TT where
 
+import Graph
 import Data.List
 import Control.Monad.Except
 import Control.Monad.State
@@ -8,36 +9,24 @@ import Data.Char
 
 type Name = String
 
-type Universe = Int
+data Constraint
+    = UniverseID :>: UniverseID
+    | UniverseID :>=: UniverseID
 
-data UniverseOrdering
-    = Universe :>: Universe
-    deriving(Show)
-
-type OrderingGraph = [(Universe,[Universe])]
-
-insertEdge :: Universe -> Universe -> OrderingGraph -> OrderingGraph
-insertEdge from to ((u,us):gs) | from == u && to `elem` us = (u,us):gs
-insertEdge from to ((u,us):gs) | from == u = (u,to:us):gs
-insertEdge from to (n:gs) = n:insertEdge from to gs
-insertEdge from to [] = [(from,[to])]
-
-acyclic :: Universe -> [Universe] -> OrderingGraph -> Bool
-acyclic n vs g | n `elem` vs = False
-acyclic n vs g = case lookup n g of
-    Just ch -> all (\v -> acyclic v (n:vs) g) ch
-    Nothing -> True
-
-appConstraints :: OrderingGraph -> [UniverseOrdering] -> Res OrderingGraph
+appConstraints :: OrderingGraph -> [Constraint] -> Res OrderingGraph
 appConstraints g (i :>: j:cs) = do
-    let g' = insertEdge j i g
-    unless (acyclic j [] g') (throwError ("could not add universe constraint Set." ++ show i ++ " > Set." ++ show j))
+    let g' = insertEdge j i True g
+    unless (acyclic i g') (throwError ("could not add universe constraint Set." ++ show i ++ " > Set." ++ show j))
+    appConstraints g' cs
+appConstraints g (i :>=: j:cs) = do
+    let g' = insertEdge j i False g
+    unless (acyclic i g') (throwError ("could not add universe constraint Set." ++ show i ++ " >= Set." ++ show j))
     appConstraints g' cs
 appConstraints g [] = pure g
 
 data Exp
     = Ann Exp Exp
-    | Set Universe
+    | Set UniverseID
     | Hole
     | Pi (Abstraction Exp)
     -- variable is marked with a type if free
@@ -58,7 +47,7 @@ data ValVar
 
 data Val
     = VApp ValVar [Val]
-    | VSet Universe
+    | VSet UniverseID
     | VLam (Abstraction Val)
     | VPi (Abstraction Val)
     deriving(Eq)
@@ -117,18 +106,18 @@ showEnv env = "[" ++ intercalate ", " (fmap (\x -> case x of
 type Ctx = [(Name,(Val,Maybe Val))]
 -- evaluation environments - should NOT include references to itself!
 type Env = [Maybe Val]
-type Res = StateT Universe (ExceptT String (Writer [UniverseOrdering]))
+type Res = StateT UniverseID (ExceptT String (Writer [Constraint]))
 
-runRes :: Universe -> Res a -> Either String (a,Universe)
+runRes :: UniverseID -> Res a -> Either String (a,UniverseID)
 runRes u r = fst (runWriter (runExceptT (runStateT r u)))
 
-freshUniverse :: Res Universe
+freshUniverse :: Res UniverseID
 freshUniverse = do
     u <- get
     put (u+1)
     pure u
 
-constrain :: UniverseOrdering -> Res ()
+constrain :: Constraint -> Res ()
 constrain c = tell [c]
 
 trace :: String -> Res a -> Res a
@@ -196,7 +185,7 @@ ehnf _ v = pure v
 match :: Ctx -> Val -> Val -> Res ()
 match g v0@(VPi ab) v1@(VPi bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
 match g v0@(VLam ab) v1@(VLam bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
-match g (VSet i) (VSet j) = constrain (j :>: i)
+match g (VSet i) (VSet j) = tell [i :>=: j, j :>=: i]
 match g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b =
     trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ mapM_ (uncurry (match g)) (zip as bs)
 match g a@(VApp (VFree n) xs) b = trace ("while expanding definition of " ++ n) $ case lookup n g of
@@ -230,7 +219,10 @@ markFreeAbs :: Int -> Val -> Abstraction Exp -> Abstraction Exp
 markFreeAbs n x (Abs d r) = Abs (fmap (markFree n x) d) (markFree (n+1) (modifFree (+1) 0 x) r)
 
 infer :: Ctx -> Exp -> Res Val
-infer g (Set i) = pure (VSet i)
+infer g (Set i) = do
+    j <- freshUniverse
+    tell [j :>: i]
+    pure (VSet j)
 infer g (Var i (Just t) n) = pure t
 infer g (Free n) = case lookup n g of
     Just (t,_) -> pure t
@@ -245,7 +237,6 @@ infer g (Lam (Abs (Just t) x)) = do
     i <- freshUniverse
     check g t (VSet i)
     dt <- eval g t
-    --debug ("marked variable in " ++ show x ++ " as free of type " ++ show (modifFree (+1) 0 dt))
     rt <- infer g (markFree 0 (modifFree (+1) 0 dt) x)
     pure (VPi (Abs (Just dt) rt))
 infer g (Pi (Abs (Just d) r)) = do
@@ -255,8 +246,7 @@ infer g (Pi (Abs (Just d) r)) = do
     check g d (VSet i)
     dt <- eval g d
     check g (markFree 0 (modifFree (+1) 0 dt) r) (VSet j)
-    constrain (k :>: i)
-    constrain (k :>: j)
+    tell [k :>=: i, k :>=: j]
     pure (VSet k)
 infer g (App f x) = do
     s <- infer g f >>= ehnf g
@@ -269,6 +259,7 @@ infer g (App f x) = do
 infer _ x = throwError ("could not infer type of \"" ++ show x ++ "\"")
 
 check :: Ctx -> Exp -> Val -> Res ()
+check g (Set i) (VSet j) = tell [j :>: i]
 check g (Lam (Abs t x)) (VPi (Abs (Just d) r)) = do
     case t of
         Just t -> do

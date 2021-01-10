@@ -17,11 +17,13 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 executable dtt
-  main-is:             Main.hs
+  hs-source-dirs: src
+  main-is: Main.hs
   other-modules:
     TT,
     Parser,
-    Command
+    Command,
+    Graph
   -- other-extensions:
   build-depends:
     base >=4.13 && <4.14,

@@ -1,5 +1,6 @@
 module Parser where
 import TT
+import Graph
 import Command
 import Data.Char
 import Control.Monad.Except
@@ -144,7 +145,7 @@ indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
 indexOf _ a = Nothing
 
-elab :: Universe -> [Var] -> AST -> Cmd (Exp,Universe)
+elab :: UniverseID -> [Var] -> AST -> Cmd (Exp,UniverseID)
 elab u ns (ASTVar v) = case indexOf ns (User v) of
     Just i -> pure (Var i Nothing (Just v),u)
     Nothing -> pure (Free v,u)
@@ -170,10 +171,10 @@ elab u ns (ASTApp f x) = do
     (x,u) <- elab u ns x
     pure (App f x,u)
 
-parse :: Universe -> String -> Cmd (Exp,Universe)
+parse :: UniverseID -> String -> Cmd (Exp,UniverseID)
 parse u = elab u [] <=< parseParExp . fst . tokenize
 
-parseCommand :: Universe -> [ParExp] -> Cmd (Command,Universe)
+parseCommand :: UniverseID -> [ParExp] -> Cmd (Command,UniverseID)
 parseCommand u xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
             (x,u) <- parseParExp ts >>= elab u []
@@ -199,20 +200,20 @@ wordsWhen p s =
             s' -> w : wordsWhen p s''
                 where (w, s'') = break p s'
 
-parseCommands :: Universe -> [[ParExp]] -> Cmd ([Command],Universe)
+parseCommands :: UniverseID -> [[ParExp]] -> Cmd ([Command],UniverseID)
 parseCommands u (x:xs) = do
     (cmd,u) <- parseCommand u x
     (cmds,u) <- parseCommands u xs
     pure (cmd:cmds,u)
 parseCommands u [] = pure ([],u)
 
-interpret :: String -> CommandState -> Cmd ([CommandOutput],CommandState)
+interpret :: String -> CommandState -> Cmd CommandState
 interpret s (ctx,ord,u) = do
     let toks = fst (tokenize s)
     (cmds,u) <- parseCommands u (wordsWhen (==Tok ".") toks)
-    i (ctx,ord,u) [] cmds
+    i (ctx,ord,u) cmds
         where
-            i st out (c:cmds) = do
-                (o,st') <- docmd c st
-                i st' (out++[o]) cmds
-            i st out [] = pure (out,st)
+            i st (c:cmds) = do
+                st' <- docmd c st
+                i st' cmds
+            i st [] = pure st

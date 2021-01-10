@@ -1,10 +1,8 @@
 module Main where
 
-import Command (CommandState,emptyState)
+import Command (CommandState,emptyState,runCmd)
 import Parser (interpret,trim)
-import TT (runRes,Universe)
 import System.IO
-import Control.Monad.Except
 import Data.IORef
 
 prompt :: String -> IO String
@@ -16,10 +14,10 @@ prompt text = do
 doLines :: IORef CommandState -> String -> IO ()
 doLines state l = do
     s <- readIORef state
-    case runExcept (interpret l s) of
-        Right (out,s') -> do
-            mapM_ print out
-            writeIORef state s'
+    let (r,out) = runCmd (interpret l s)
+    mapM_ print out
+    case r of
+        Right s' -> writeIORef state s'
         Left e -> putStrLn (e ++ "\n")
 
 repl :: IORef CommandState -> IO ()
