@@ -16,11 +16,11 @@ data Constraint
 appConstraints :: OrderingGraph -> [Constraint] -> Res OrderingGraph
 appConstraints g (i :>: j:cs) = do
     let g' = insertEdge j i True g
-    unless (acyclic i g') (throwError ("could not add universe constraint Set." ++ show i ++ " > Set." ++ show j))
+    unless (acyclic i g') (throwError ("could not add universe constraint Type." ++ show i ++ " > Type." ++ show j))
     appConstraints g' cs
 appConstraints g (i :>=: j:cs) = do
     let g' = insertEdge j i False g
-    unless (acyclic i g') (throwError ("could not add universe constraint Set." ++ show i ++ " >= Set." ++ show j))
+    unless (acyclic i g') (throwError ("could not add universe constraint Type." ++ show i ++ " ≥ Type." ++ show j))
     appConstraints g' cs
 appConstraints g [] = pure g
 
@@ -89,7 +89,7 @@ showNames us ns (VPi abs) =
         else parens t ++ " -> " ++ x
 showNames us ns (VApp (VVar i) vs) = (if length ns <= i then show i else ns !! i) ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VApp (VFree i) vs) = i ++ concatMap ((' ':) . parens . showNames us ns) vs
-showNames us ns (VSet i) = "Set." ++ show i
+showNames us ns (VSet i) = "Type." ++ show i
 
 instance Show Val where
     show = showNames names []

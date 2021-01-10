@@ -19,11 +19,10 @@ data AST
     = ASTAnn AST AST
     | ASTSet
     | ASTHole
-    | ASTForall Var AST AST
+    | ASTForall Var (Maybe AST) AST
     | ASTVar String
     | ASTApp AST AST
-    | ASTLam Var AST
-    | ASTLamTy Var AST AST
+    | ASTLam Var (Maybe AST) AST
 
 instance Show ParExp where
     show (Parens xs) = "(" ++ unwords (fmap show xs) ++ ")"
@@ -88,20 +87,27 @@ parseIdents (Tok n:ns) = fmap (n:) (parseIdents ns)
 parseIdents [] = pure []
 parseIdents xs = throwError ("could not parse identifiers '\"" ++ unwords (fmap show xs) ++ "'\"")
 
-parseNames :: [ParExp] -> Cmd [Var]
-parseNames (Tok "_":ns) = fmap (Dummy:) (parseNames ns)
-parseNames (Tok n:ns) = fmap (User n:) (parseNames ns)
-parseNames [] = pure []
-parseNames xs = throwError ("could not parse arguments '\"" ++ unwords (fmap show xs) ++ "'\"")
+parseName :: ParExp -> Cmd Var
+parseName (Tok "_") = pure Dummy
+parseName (Tok n) = pure (User n)
 
-parseArgs :: [ParExp] -> Cmd [(Var,AST)]
+parseNames :: [ParExp] -> Cmd [Var]
+parseNames = mapM parseName
+
+parseArgs :: [ParExp] -> Cmd [(Var,Maybe AST)]
 parseArgs (Parens ds:xs) = do
     let t = drop 1 (dropWhile (/=Tok ":") ds)
     let ns = takeWhile (/=Tok ":") ds
     ns <- parseNames ns
     t <- parseParExp t
     as <- parseArgs xs
-    pure (fmap (\x -> (x,t)) ns ++ as)
+    pure (fmap (\x -> (x,Just t)) ns ++ as)
+parseArgs (Tok "_":xs) = do
+    as <- parseArgs xs
+    pure ((Dummy,Nothing):as)
+parseArgs (Tok n:xs) = do
+    as <- parseArgs xs
+    pure ((User n,Nothing):as)
 parseArgs [] = pure []
 
 parseParExp :: [ParExp] -> Cmd AST
@@ -111,18 +117,12 @@ parseParExp (Tok "forall":xs) = do
     ns <- parseArgs ns
     e <- parseParExp e
     pure (foldr (uncurry ASTForall) e ns)
-parseParExp (Tok "lam":xs) = do
-    let e = drop 1 (dropWhile (/=Tok "=>") xs)
-    let ns = takeWhile (/=Tok "=>") xs
-    ns <- parseNames ns
-    e <- parseParExp e
-    pure (foldr ASTLam e ns)
 parseParExp (Tok "fun":xs) = do
     let e = drop 1 (dropWhile (/=Tok "=>") xs)
     let ns = takeWhile (/=Tok "=>") xs
     ns <- parseArgs ns
     e <- parseParExp e
-    pure (foldr (uncurry ASTLamTy) e ns)
+    pure (foldr (uncurry ASTLam) e ns)
 parseParExp (e:Tok ":":t) = do
     e <- parseParExp (ext e)
     t <- parseParExp t
@@ -130,8 +130,8 @@ parseParExp (e:Tok ":":t) = do
 parseParExp (d:Tok "->":r) = do
     d <- parseParExp (ext d)
     r <- parseParExp r
-    pure (ASTForall Dummy d r)
-parseParExp [Tok "Set"] = pure ASTSet
+    pure (ASTForall Dummy (Just d) r)
+parseParExp [Tok "Type"] = pure ASTSet
 parseParExp [Tok "_"] = pure ASTHole
 parseParExp [Tok s] = pure (ASTVar s)
 parseParExp (e:es) = do
@@ -156,16 +156,21 @@ elab u ns (ASTAnn a b) = do
 elab u ns ASTSet = pure (Set u,u+1)
 elab u ns ASTHole = pure (Hole,u)
 elab u ns (ASTForall n a b) = do
-    (a,u) <- elab u ns a
+    (a,u) <- case a of
+        Just a -> do
+            (t,u) <- elab u ns a
+            pure (Just t,u)
+        Nothing -> pure (Nothing,u)
     (b,u) <- elab u (n:ns) b
-    pure (Pi (Abs (Just a) b),u)
-elab u ns (ASTLam n x) = do
+    pure (Pi (Abs a b),u)
+elab u ns (ASTLam n t x) = do
+    (t,u) <- case t of
+        Just t -> do
+            (t,u) <- elab u ns t
+            pure (Just t,u)
+        Nothing -> pure (Nothing,u)
     (x,u) <- elab u (n:ns) x
-    pure (Lam (Abs Nothing x),u)
-elab u ns (ASTLamTy n t x) = do
-    (t,u) <- elab u ns t
-    (x,u) <- elab u (n:ns) x
-    pure (Lam (Abs (Just t) x),u)
+    pure (Lam (Abs t x),u)
 elab u ns (ASTApp f x) = do
     (f,u) <- elab u ns f
     (x,u) <- elab u ns x
@@ -183,7 +188,7 @@ parseCommand u xs = case xs of
             (x,u) <- parseParExp ts >>= elab u []
             pure (Define n x,u)
         (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= elab u [])
-        (Tok "Eval":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= elab u [])
+        (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= elab u [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)

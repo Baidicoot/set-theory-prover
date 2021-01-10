@@ -1,36 +1,36 @@
-Definition id := fun (A: Set) (x: A) => x.
+Definition id := fun (A: Type) (x: A) => x.
 
-Definition True := forall (P: Set), P -> P.
+Definition True := forall (P: Type), P -> P.
 
-Definition False := forall (P: Set), P.
+Definition False := forall (P: Type), P.
 
-Definition ~ := fun (A: Set) => A -> False.
+Definition ~ := fun (A: Type) => A -> False.
 
-Definition Prod := fun (A B: Set) => forall (C: Set), (A -> B -> C) -> C.
+Definition Prod := fun (A B: Type) => forall (C: Type), (A -> B -> C) -> C.
 
-Definition DoubleNegate := fun (P: Set) (H: P) => (fun (H0: ~ P) => H0 H) : ~ (~ P).
+Definition DoubleNegate := fun (P: Type) (H: P) => (fun (H0: ~ P) => H0 H) : ~ (~ P).
 
-Definition pair := fun (A B: Set) (a: A) (b: B) => (fun (C: Set) (f: A -> B -> C) => (f a) b) : Prod A B.
+Definition pair := fun (A B: Type) (a: A) (b: B) => (fun (C: Type) (f: A -> B -> C) => (f a) b) : Prod A B.
 
-Definition fst := fun (A B: Set) (p: Prod A B) => (p A) (fun (x: A) (y: B) => x).
-Definition snd := fun (A B: Set) (p: Prod A B) => (p B) (fun (x: A) (y: B) => y).
+Definition fst := fun (A B: Type) (p: Prod A B) => (p A) (fun (x: A) (y: B) => x).
+Definition snd := fun (A B: Type) (p: Prod A B) => (p B) (fun (x: A) (y: B) => y).
 
-Definition Sum := fun (A B: Set) => forall (C: Set), (A -> C) -> (B -> C) -> C.
+Definition Sum := fun (A B: Type) => forall (C: Type), (A -> C) -> (B -> C) -> C.
 
-Definition inl := fun (A: Set) (x: A) (B: Set) => (fun (C: Set) (f: A -> C) (_: B -> C) => f x) : Sum A B.
-Definition inl := fun (B: Set) (y: B) (A: Set) => (fun (C: Set) (_: A -> C) (g: B -> C) => g y) : Sum A B.
+Definition inl := fun (A: Type) (x: A) (B: Type) => (fun (C: Type) (f: A -> C) (_: B -> C) => f x) : Sum A B.
+Definition inl := fun (B: Type) (y: B) (A: Type) => (fun (C: Type) (_: A -> C) (g: B -> C) => g y) : Sum A B.
 
-Definition Exists := fun (A: Set) (B: A -> Set) => forall (C: Set), (forall (x: A), (B x) -> C) -> C.
+Definition Exists := fun (A: Type) (B: A -> Type) => forall (C: Type), (forall (x: A), (B x) -> C) -> C.
 
-Definition exist := fun (A: Set) (B: A -> Set) (x: A) (p: B x) =>
-    (fun (C: Set) (f: forall (x: A), (B x) -> C) => f x p) : Exists A B.
+Definition exist := fun (A: Type) (B: A -> Type) (x: A) (p: B x) =>
+    (fun (C: Type) (f: forall (x: A), (B x) -> C) => f x p) : Exists A B.
 
-Definition Inhabited := fun (A: Set) => A.
+Definition Inhabited := fun (A: Type) => A.
 
-Definition Eq := fun (A: Set) (x y: A) => forall (P: A -> Set), (P x) -> (P y).
+Definition Eq := fun (A: Type) (x y: A) => forall (P: A -> Type), (P x) -> (P y).
 
-Definition eq_refl := fun (A: Set) (x: A) => (fun (P: A -> Set) (H: P x) => H) : Eq A x x.
+Definition eq_refl := fun (A: Type) (x: A) => (fun (P: A -> Type) (H: P x) => H) : Eq A x x.
 
-Definition cast := fun (x y: Set) (H: Eq Set x y) (p: x) => (H Inhabited p) : y.
+Definition cast := fun (x y: Type) (H: Eq Type x y) (p: x) => (H Inhabited p) : y.
 
-Definition Neq := fun (A: Set) (x y: A) => ~ (Eq A x y).
+Definition Neq := fun (A: Type) (x y: A) => ~ (Eq A x y).
