@@ -1,7 +1,6 @@
 module Command where
 import TT
 import Control.Monad.Except
-import Control.Monad.State
 import Data.List
 
 data Command
@@ -21,6 +20,8 @@ data CommandOutput
     | Evaluated Val
     | PrintCtx Ctx
     | PrintGraph OrderingGraph
+
+type Cmd = Except String
 
 roots :: OrderingGraph -> [Universe]
 roots g =
@@ -84,27 +85,21 @@ type CommandState = (Ctx,OrderingGraph,Universe)
 emptyState :: CommandState
 emptyState = ([],[],0)
 
-docmd :: Command -> CommandState -> Res (CommandOutput,CommandState)
+docmd :: Command -> CommandState -> Cmd (CommandOutput,CommandState)
 docmd (Axiom n e) (ctx,ord,u) = do
-    put u
-    (_,ord) <- inferWithOrderCheck ctx ord e
-    x <- eval ctx e
-    u <- get
+    ((_,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
+    (x,u) <- liftEither (runRes u (eval ctx e))
     pure (DefAxiom n x,((n,(x,Nothing)):ctx,ord,u))
 docmd (Define n e) (ctx,ord,u) = do
-    put u
-    (t,ord) <- inferWithOrderCheck ctx ord e
-    x <- eval ctx e
-    u <- get
+    ((t,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
+    (x,u) <- liftEither (runRes u (eval ctx e))
     pure (Defined n t x,((n,(t,Just x)):ctx,ord,u))
 docmd (Check e) (ctx,ord,u) = do
-    put u
-    (t,_) <- inferWithOrderCheck ctx ord e
+    ((t,_),_) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
     pure (Checked t,(ctx,ord,u))
 docmd (Eval e) (ctx,ord,u) = do
-    put u
-    inferWithOrderCheck ctx ord e
-    x <- eval ctx e
+    (_,u') <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
+    (x,_) <- liftEither (runRes u' (eval ctx e))
     pure (Evaluated x,(ctx,ord,u))
 docmd (Print ns) (ctx,ord,u) = do
     defs <- mapM (\n -> case lookup n ctx of

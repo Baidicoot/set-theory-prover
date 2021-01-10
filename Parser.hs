@@ -82,18 +82,18 @@ ext :: ParExp -> [ParExp]
 ext (Tok s) = [Tok s]
 ext (Parens xs) = xs
 
-parseIdents :: [ParExp] -> Res [Name]
+parseIdents :: [ParExp] -> Cmd [Name]
 parseIdents (Tok n:ns) = fmap (n:) (parseIdents ns)
 parseIdents [] = pure []
 parseIdents xs = throwError ("could not parse identifiers '\"" ++ unwords (fmap show xs) ++ "'\"")
 
-parseNames :: [ParExp] -> Res [Var]
+parseNames :: [ParExp] -> Cmd [Var]
 parseNames (Tok "_":ns) = fmap (Dummy:) (parseNames ns)
 parseNames (Tok n:ns) = fmap (User n:) (parseNames ns)
 parseNames [] = pure []
 parseNames xs = throwError ("could not parse arguments '\"" ++ unwords (fmap show xs) ++ "'\"")
 
-parseArgs :: [ParExp] -> Res [(Var,AST)]
+parseArgs :: [ParExp] -> Cmd [(Var,AST)]
 parseArgs (Parens ds:xs) = do
     let t = drop 1 (dropWhile (/=Tok ":") ds)
     let ns = takeWhile (/=Tok ":") ds
@@ -103,37 +103,37 @@ parseArgs (Parens ds:xs) = do
     pure (fmap (\x -> (x,t)) ns ++ as)
 parseArgs [] = pure []
 
-parseParExp :: [ParExp] -> Res AST
-parseParExp (Tok "forall":xs)= trace ("while parsing forall " ++ unwords (fmap show xs)) $ do
+parseParExp :: [ParExp] -> Cmd AST
+parseParExp (Tok "forall":xs) = do
     let e = drop 1 (dropWhile (/=Tok ",") xs)
     let ns = takeWhile (/=Tok ",") xs
     ns <- parseArgs ns
     e <- parseParExp e
     pure (foldr (uncurry ASTForall) e ns)
-parseParExp (Tok "lam":xs) = trace ("while parsing lam " ++ unwords (fmap show xs)) $ do
+parseParExp (Tok "lam":xs) = do
     let e = drop 1 (dropWhile (/=Tok "=>") xs)
     let ns = takeWhile (/=Tok "=>") xs
     ns <- parseNames ns
     e <- parseParExp e
     pure (foldr ASTLam e ns)
-parseParExp (Tok "fun":xs) = trace ("while parsing fun " ++ unwords (fmap show xs)) $ do
+parseParExp (Tok "fun":xs) = do
     let e = drop 1 (dropWhile (/=Tok "=>") xs)
     let ns = takeWhile (/=Tok "=>") xs
     ns <- parseArgs ns
     e <- parseParExp e
     pure (foldr (uncurry ASTLamTy) e ns)
-parseParExp (e:Tok ":":t) = trace ("while parsing " ++ show e ++ " : " ++ unwords (fmap show t)) $ do
+parseParExp (e:Tok ":":t) = do
     e <- parseParExp (ext e)
     t <- parseParExp t
     pure (ASTAnn e t)
-parseParExp (d:Tok "->":r) = trace ("while parsing " ++ show d ++ " -> " ++ unwords (fmap show r)) $ do
+parseParExp (d:Tok "->":r) = do
     d <- parseParExp (ext d)
     r <- parseParExp r
     pure (ASTForall Dummy d r)
 parseParExp [Tok "Set"] = pure ASTSet
 parseParExp [Tok "_"] = pure ASTHole
 parseParExp [Tok s] = pure (ASTVar s)
-parseParExp (e:es) = trace ("while parsing" ++ unwords (fmap show (e:es))) $ do
+parseParExp (e:es) = do
     args <- mapM (parseParExp . ext) es
     e <- parseParExp (ext e)
     pure (foldl ASTApp e args)
@@ -144,48 +144,48 @@ indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
 indexOf _ a = Nothing
 
-elab :: [Var] -> AST -> Res Exp
-elab ns (ASTVar v) = case indexOf ns (User v) of
-    Just i -> pure (Var i Nothing (Just v))
-    Nothing -> pure (Free v)
-elab ns (ASTAnn a b) = do
-    a <- elab ns a
-    b <- elab ns b
-    pure (Ann a b)
-elab ns ASTSet = Set <$> freshUniverse
-elab ns ASTHole = pure Hole
-elab ns (ASTForall n a b) = do
-    a <- elab ns a
-    b <- elab (n:ns) b
-    pure (Pi (Abs (Just a) b))
-elab ns (ASTLam n x) = do
-    x <- elab (n:ns) x
-    pure (Lam (Abs Nothing x))
-elab ns (ASTLamTy n t x) = do
-    t <- elab ns t
-    x <- elab (n:ns) x
-    pure (Lam (Abs (Just t) x))
-elab ns (ASTApp f x) = do
-    f <- elab ns f
-    x <- elab ns x
-    pure (App f x)
+elab :: Universe -> [Var] -> AST -> Cmd (Exp,Universe)
+elab u ns (ASTVar v) = case indexOf ns (User v) of
+    Just i -> pure (Var i Nothing (Just v),u)
+    Nothing -> pure (Free v,u)
+elab u ns (ASTAnn a b) = do
+    (a,u) <- elab u ns a
+    (b,u) <- elab u ns b
+    pure (Ann a b,u)
+elab u ns ASTSet = pure (Set u,u+1)
+elab u ns ASTHole = pure (Hole,u)
+elab u ns (ASTForall n a b) = do
+    (a,u) <- elab u ns a
+    (b,u) <- elab u (n:ns) b
+    pure (Pi (Abs (Just a) b),u)
+elab u ns (ASTLam n x) = do
+    (x,u) <- elab u (n:ns) x
+    pure (Lam (Abs Nothing x),u)
+elab u ns (ASTLamTy n t x) = do
+    (t,u) <- elab u ns t
+    (x,u) <- elab u (n:ns) x
+    pure (Lam (Abs (Just t) x),u)
+elab u ns (ASTApp f x) = do
+    (f,u) <- elab u ns f
+    (x,u) <- elab u ns x
+    pure (App f x,u)
 
-parse :: String -> Res Exp
-parse = elab [] <=< parseParExp . fst . tokenize
+parse :: Universe -> String -> Cmd (Exp,Universe)
+parse u = elab u [] <=< parseParExp . fst . tokenize
 
-parseCommand :: [ParExp] -> Res Command
-parseCommand xs = case xs of
+parseCommand :: Universe -> [ParExp] -> Cmd (Command,Universe)
+parseCommand u xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
-            x <- parseParExp ts >>= elab []
-            pure (Axiom n x)
+            (x,u) <- parseParExp ts >>= elab u []
+            pure (Axiom n x,u)
         (Tok "Definition":Tok n:Tok ":=":ts) -> do
-            x <- parseParExp ts >>= elab []
-            pure (Define n x)
-        (Tok "Check":ts) -> fmap Check (parseParExp ts >>= elab [])
-        (Tok "Eval":ts) -> fmap Eval (parseParExp ts >>= elab [])
-        [Tok "Print",Tok "All"] -> pure PrintAll
-        [Tok "Print",Tok "Universes"] -> pure PrintUniverses
-        (Tok "Print":xs) -> fmap Print (parseIdents xs)
+            (x,u) <- parseParExp ts >>= elab u []
+            pure (Define n x,u)
+        (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= elab u [])
+        (Tok "Eval":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= elab u [])
+        [Tok "Print",Tok "All"] -> pure (PrintAll,u)
+        [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
+        (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
         xs -> throwError ("unrecognised sequence: '" ++ unwords (fmap show xs) ++ "'")
 
 trim :: String -> String
@@ -199,14 +199,18 @@ wordsWhen p s =
             s' -> w : wordsWhen p s''
                 where (w, s'') = break p s'
 
-parseCommands :: [ParExp] -> Res [Command]
-parseCommands xs = mapM parseCommand (wordsWhen (==Tok ".") xs)
+parseCommands :: Universe -> [[ParExp]] -> Cmd ([Command],Universe)
+parseCommands u (x:xs) = do
+    (cmd,u) <- parseCommand u x
+    (cmds,u) <- parseCommands u xs
+    pure (cmd:cmds,u)
+parseCommands u [] = pure ([],u)
 
-interpret :: String -> CommandState -> Res ([CommandOutput],CommandState)
-interpret s st = do
+interpret :: String -> CommandState -> Cmd ([CommandOutput],CommandState)
+interpret s (ctx,ord,u) = do
     let toks = fst (tokenize s)
-    cmds <- parseCommands toks
-    i st [] cmds
+    (cmds,u) <- parseCommands u (wordsWhen (==Tok ".") toks)
+    i (ctx,ord,u) [] cmds
         where
             i st out (c:cmds) = do
                 (o,st') <- docmd c st

@@ -5,7 +5,6 @@ import Parser (interpret,trim)
 import TT (runRes,Universe)
 import System.IO
 import Control.Monad.Except
-import Control.Monad.Writer
 import Data.IORef
 
 prompt :: String -> IO String
@@ -16,10 +15,9 @@ prompt text = do
 
 doLines :: IORef CommandState -> String -> IO ()
 doLines state l = do
-    s@(_,_,u) <- readIORef state
-    let (t,log) = runRes u (interpret l s)
-    case t of
-        Right ((out,s'),_) -> do
+    s <- readIORef state
+    case runExcept (interpret l s) of
+        Right (out,s') -> do
             mapM_ print out
             writeIORef state s'
         Left e -> putStrLn (e ++ "\n")

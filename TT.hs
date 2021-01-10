@@ -119,8 +119,8 @@ type Ctx = [(Name,(Val,Maybe Val))]
 type Env = [Maybe Val]
 type Res = StateT Universe (ExceptT String (Writer [UniverseOrdering]))
 
-runRes :: Universe -> Res a -> (Either String (a,Universe),[UniverseOrdering])
-runRes u r = runWriter (runExceptT (runStateT r u))
+runRes :: Universe -> Res a -> Either String (a,Universe)
+runRes u r = fst (runWriter (runExceptT (runStateT r u)))
 
 freshUniverse :: Res Universe
 freshUniverse = do
