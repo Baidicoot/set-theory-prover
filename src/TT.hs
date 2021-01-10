@@ -182,27 +182,27 @@ ehnf g v@(VApp (VFree n) xs) = case lookup n g of
     _ -> pure v
 ehnf _ v = pure v
 
-match :: Ctx -> Val -> Val -> Res ()
-match g v0@(VPi ab) v1@(VPi bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
-match g v0@(VLam ab) v1@(VLam bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
-match g (VSet i) (VSet j) = tell [i :>=: j, j :>=: i]
-match g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b =
-    trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ mapM_ (uncurry (match g)) (zip as bs)
-match g a@(VApp (VFree n) xs) b = trace ("while expanding definition of " ++ n) $ case lookup n g of
+fit :: Ctx -> Val -> Val -> Res ()
+fit g v0@(VPi ab) v1@(VPi bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
+fit g v0@(VLam ab) v1@(VLam bb) = trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ matchAbs g ab bb
+fit g (VSet i) (VSet j) = tell [j :>=: i]
+fit g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b =
+    trace ("while matching " ++ show v0 ++ " and " ++ show v1) $ mapM_ (uncurry (fit g)) (zip as bs)
+fit g a@(VApp (VFree n) xs) b = trace ("while expanding definition of " ++ n) $ case lookup n g of
     Just (_,Just d) -> do
         a' <- foldM (evalApp g) d xs
-        match g a' b
-    _ -> throwError ("could not match types " ++ show a ++ " and " ++ show b)
-match g a b@(VApp (VFree n) xs) = trace ("while expanding definition of " ++ n) $ case lookup n g of
+        fit g a' b
+    _ -> throwError ("could not fit types " ++ show a ++ " and " ++ show b)
+fit g a b@(VApp (VFree n) xs) = trace ("while expanding definition of " ++ n) $ case lookup n g of
     Just (_,Just d) -> do
         b' <- foldM (evalApp g) d xs
-        match g a b'
-    _ -> throwError ("could not match types " ++ show a ++ " and " ++ show b)
-match g a b = throwError ("could not match types " ++ show a ++ " and " ++ show b)
+        fit g a b'
+    _ -> throwError ("could not fit types " ++ show a ++ " and " ++ show b)
+fit g a b = throwError ("could not fit types " ++ show a ++ " and " ++ show b)
 
 matchAbs :: Ctx -> Abstraction Val -> Abstraction Val -> Res ()
-matchAbs g (Abs (Just a) b) (Abs (Just x) y) = match g a x >> match g b y
-matchAbs g (Abs _ a) (Abs _ b) = match g a b
+matchAbs g (Abs (Just a) b) (Abs (Just x) y) = fit g a x >> fit g b y
+matchAbs g (Abs _ a) (Abs _ b) = fit g a b
 
 markFree :: Int -> Val -> Exp -> Exp
 markFree n x (Var i _ o) | n == i = Var i (Just x) o
@@ -259,20 +259,19 @@ infer g (App f x) = do
 infer _ x = throwError ("could not infer type of \"" ++ show x ++ "\"")
 
 check :: Ctx -> Exp -> Val -> Res ()
-check g (Set i) (VSet j) = tell [j :>: i]
 check g (Lam (Abs t x)) (VPi (Abs (Just d) r)) = do
     case t of
         Just t -> do
             i <- freshUniverse
             check g t (VSet i)
             t <- eval g t
-            match g t d
+            fit g t d
         _ -> pure ()
     check g (markFree 0 (modifFree (+1) 0 d) x) r
 check g Hole t = throwError ("found hole of type: " ++ show t ++ "\nin environment: " ++ showCtx g)
 check g x t = do
     xt <- infer g x
-    match g xt t
+    fit g xt t
 
 inferWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Res (Val,OrderingGraph)
 inferWithOrderCheck g gr e = do
