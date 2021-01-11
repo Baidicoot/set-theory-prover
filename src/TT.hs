@@ -26,7 +26,11 @@ appConstraints g [] = pure g
 data Var
     = Dummy
     | User String
-    deriving(Eq,Show)
+    deriving(Eq)
+
+instance Show Var where
+    show (User s) = s
+    show Dummy = "_"
 
 data Exp
     = Ann Exp Exp
@@ -50,7 +54,7 @@ showExp ns (Var i _) | i >= length ns = show i
 showExp ns (Var i _) = show (ns !! i)
 showExp ns (Free n) = n
 showExp ns (App f x) = parens (showExp ns f) ++ " " ++ parens (showExp ns x)
-showExp ns (Lam n (Abs Nothing r)) = "fun " ++ show n ++ " => " ++ showExp (Dummy:ns) r
+showExp ns (Lam n (Abs Nothing r)) = "fun " ++ show n ++ " => " ++ showExp (n:ns) r
 showExp ns (Lam n (Abs (Just d) r)) = "fun (" ++ show n ++ ": " ++ showExp ns d ++ ") => " ++ showExp (n:ns) r
 
 data Abstraction e
