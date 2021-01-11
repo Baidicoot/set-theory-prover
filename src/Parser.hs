@@ -10,11 +10,6 @@ data ParExp
     | Tok String
     deriving(Eq)
 
-data Var
-    = Dummy
-    | User String
-    deriving(Eq,Show)
-
 data AST
     = ASTAnn AST AST
     | ASTSet
@@ -184,7 +179,7 @@ indexOf _ a = Nothing
 
 elab :: UniverseID -> [Var] -> AST -> Cmd (Exp,UniverseID)
 elab u ns (ASTVar v) = case indexOf ns (User v) of
-    Just i -> pure (Var i Nothing (Just v),u)
+    Just i -> pure (Var i Nothing,u)
     Nothing -> pure (Free v,u)
 elab u ns (ASTAnn a b) = do
     (a,u) <- elab u ns a
@@ -199,7 +194,7 @@ elab u ns (ASTForall n a b) = do
             pure (Just t,u)
         Nothing -> pure (Nothing,u)
     (b,u) <- elab u (n:ns) b
-    pure (Pi (Abs a b),u)
+    pure (Pi n (Abs a b),u)
 elab u ns (ASTLam n t x) = do
     (t,u) <- case t of
         Just t -> do
@@ -207,7 +202,7 @@ elab u ns (ASTLam n t x) = do
             pure (Just t,u)
         Nothing -> pure (Nothing,u)
     (x,u) <- elab u (n:ns) x
-    pure (Lam (Abs t x),u)
+    pure (Lam n (Abs t x),u)
 elab u ns (ASTApp f x) = do
     (f,u) <- elab u ns f
     (x,u) <- elab u ns x
