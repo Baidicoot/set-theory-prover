@@ -1,0 +1,23 @@
+(* nat defined by iteration *)
+Definition nat := forall (A: Type), (A -> A) -> A -> A.
+
+Definition Z := (fun (A: Type) (_: A -> A) (x: A) => x) : nat.
+
+Definition S := fun (n: nat) => (fun (A: Type) (f: A -> A) (x: A) => n A f (f x)) : nat.
+
+Definition add := fun (n m: nat) =>
+    (fun (A: Type) (f: A -> A) (x: A) => n A f (m A f x)) : nat.
+
+Definition mult := fun (n m: nat) =>
+    (fun (A: Type) (f: A -> A) => n A (m A f)) : nat.
+
+(* list defined by fold *)
+Definition list := fun (A: Type) => forall (B: Type), (A -> B -> B) -> B -> B.
+
+Definition nil := fun (A: Type) => (fun (B: Type) (_: A -> B -> B) (x: B) => x) : list A.
+
+Definition cons := fun (A: Type) (x: A) (xs: list A) =>
+    (fun (B: Type) (f: A -> B -> B) (a: B) => xs B f (f x a)) : list A.
+
+Definition append := fun (A: Type) (xs ys: list A) =>
+    (fun (B: Type) (f: A -> B -> B) (a: B) => xs B f (ys B f a)) : list A.

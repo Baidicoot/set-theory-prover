@@ -140,6 +140,43 @@ parseParExp (e:es) = do
     pure (foldl ASTApp e args)
 parseParExp x = throwError ("could not parse \"" ++ unwords (fmap show x) ++ "\"")
 
+parseConstraints :: [ParExp] -> Cmd [Constraint]
+parseConstraints xs = fmap concat (mapM parseConstraint (wordsWhen (==Tok ",") xs))
+
+parseNat :: String -> Cmd Int
+parseNat s | all isDigit s = pure (read s)
+parseNat s = throwError ("'" ++ s ++ "' is not a natural")
+
+parseConstraint :: [ParExp] -> Cmd [Constraint]
+parseConstraint [Tok i,Tok ">",Tok j] = do
+    i <- parseNat i
+    j <- parseNat j
+    pure [i :>: j]
+parseConstraint [Tok i,Tok "<",Tok j] = do
+    i <- parseNat i
+    j <- parseNat j
+    pure [j :>: i]
+parseConstraint [Tok i,Tok ">=",Tok j] = do
+    i <- parseNat i
+    j <- parseNat j
+    pure [i :>=: j]
+parseConstraint [Tok i,Tok "<=",Tok j] = do
+    i <- parseNat i
+    j <- parseNat j
+    pure [j :>=: i]
+parseConstraint [Tok i,Tok "≥",Tok j] = do
+    i <- parseNat i
+    j <- parseNat j
+    pure [i :>=: j]
+parseConstraint [Tok i,Tok "≤",Tok j] = do
+    i <- parseNat i
+    j <- parseNat j
+    pure [j :>=: i]
+parseConstraint [Tok i,Tok "=",Tok j] = do
+    i <- parseNat i
+    j <- parseNat j
+    pure [i :>=: j, j :>=: i]
+
 indexOf :: (Eq a, Show a) => [a] -> a -> Maybe Int
 indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
@@ -187,6 +224,7 @@ parseCommand u xs = case xs of
         (Tok "Definition":Tok n:Tok ":=":ts) -> do
             (x,u) <- parseParExp ts >>= elab u []
             pure (Define n x,u)
+        (Tok "Check":Tok "Constraint":xs) -> fmap (\a -> (CheckConstraints a,u)) (parseConstraints xs)
         (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= elab u [])
         (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= elab u [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)

@@ -13,7 +13,7 @@ data Command
     | Print [String]
     | PrintAll
     | PrintUniverses
-    deriving(Show)
+    | CheckConstraints [Constraint]
 
 data CommandOutput
     = DefAxiom String Val
@@ -22,6 +22,7 @@ data CommandOutput
     | Evaluated Val
     | PrintCtx Ctx
     | PrintGraph OrderingGraph
+    | Success
 
 type Cmd = ExceptT String (Writer [CommandOutput])
 
@@ -37,6 +38,7 @@ instance Show CommandOutput where
         Just d -> "Definition '" ++ n ++ "' : " ++ show t ++ "\n    := " ++ show d ++ "."
         Nothing -> "Axiom '" ++ n ++ "' : " ++ show t ++ ".") c) ++ "\n"
     show (PrintGraph g) = showOrdering g
+    show Success = "Ok.\n"
 
 type CommandState = (Ctx,OrderingGraph,UniverseID)
 
@@ -71,3 +73,5 @@ docmd (Print ns) (ctx,ord,u) = do
     pure (ctx,ord,u)
 docmd PrintAll (ctx,ord,u) = tell [PrintCtx ctx] >> pure (ctx,ord,u)
 docmd PrintUniverses (ctx,ord,u) = tell [PrintGraph ord] >> pure (ctx,ord,u)
+docmd (CheckConstraints cs) (ctx,ord,u) =
+    liftEither (runRes u (appConstraints ord cs)) >> tell [Success] >> pure (ctx,ord,u)
