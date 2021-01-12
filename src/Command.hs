@@ -42,10 +42,15 @@ instance Show CommandOutput where
 
 type CommandState = (Ctx,OrderingGraph,UniverseID)
 
+inCtx :: Name -> Ctx -> Bool
+inCtx n ctx = n `elem` fmap fst ctx
+
 emptyState :: CommandState
 emptyState = ([],[],0)
 
 docmd :: Command -> CommandState -> Cmd CommandState
+docmd (Axiom n _) (ctx,ord,u) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
+docmd (Define n _) (ctx,ord,u) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
 docmd (Axiom n e) (ctx,ord,u) = do
     ((_,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
     (x,u) <- liftEither (runRes u (eval ctx e))
@@ -68,7 +73,7 @@ docmd (Eval e) (ctx,ord,u) = do
 docmd (Print ns) (ctx,ord,u) = do
     defs <- mapM (\n -> case lookup n ctx of
         Just d -> pure (n,d)
-        Nothing -> throwError ("identifier \"" ++ show n ++ "\" not defined")) ns
+        Nothing -> throwError ("Identifier \"" ++ show n ++ "\" is not defined.")) ns
     tell [PrintCtx defs]
     pure (ctx,ord,u)
 docmd PrintAll (ctx,ord,u) = tell [PrintCtx ctx] >> pure (ctx,ord,u)

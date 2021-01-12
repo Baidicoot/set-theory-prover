@@ -226,7 +226,7 @@ parseCommand u xs = case xs of
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
-        xs -> throwError ("unrecognised sequence: '" ++ unwords (fmap show xs) ++ "'")
+        xs -> throwError ("Unrecognised command \"" ++ unwords (fmap show xs) ++ "\".")
 
 trim :: String -> String
 trim = f . f

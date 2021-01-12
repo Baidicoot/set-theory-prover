@@ -18,7 +18,7 @@ Definition DoubleNegate := fun (P: Type) (H: P) => (fun (H0: ~ P) => H0 H) : ~ (
 Definition pair := fun (A B: Type) (a: A) (b: B) => (fun (C: Type) (f: A -> B -> C) => (f a) b) : Prod A B.
 
 Definition fst := fun (A B: Type) (p: Prod A B) => (p A) (fun (x: A) (y: B) => x).
-Definition snd := fun (A B: Type) (p: Prod A B) => (p B) (fun (x: A) (y: B) => y).)
+Definition snd := fun (A B: Type) (p: Prod A B) => (p B) (fun (x: A) (y: B) => y).
 
 Definition Sum := fun (A B: Type) => forall (C: Type), (A -> C) -> (B -> C) -> C.
 
