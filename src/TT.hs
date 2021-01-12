@@ -214,9 +214,14 @@ fit g a@(VApp (VFree n) xs) b = case lookup n g of
     Just (_,Just d) -> do
         a' <- foldM (evalApp g) d xs
         fit g a' b
-    _ -> do
-        vs <- getVars
-        throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
+    _ -> case b of
+        VApp (VFree n) xs -> case lookup n g of
+            Just (_,Just d) -> do
+                b' <- foldM (evalApp g) d xs
+                fit g a b'
+            _ -> do
+                vs <- getVars
+                throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
 fit g a b@(VApp (VFree n) xs) = case lookup n g of
     Just (_,Just d) -> do
         b' <- foldM (evalApp g) d xs
@@ -302,7 +307,7 @@ check g (Lam n (Abs t x)) (VPi (Abs (Just d) r)) = do
     withVar n $ check g (markFree 0 (modifFree (+1) 0 d) x) r
 check g Hole t = do
     vs <- getVars
-    throwError ("Found hole of type \"" ++ showVal vs t ++ "\" in environment:" ++ showCtx g)
+    throwError ("Found hole of type \"" ++ showVal vs t ++ "\".")
 check g x t = do
     xt <- infer g x
     fit g xt t

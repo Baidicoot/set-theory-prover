@@ -1,0 +1,30 @@
+(* well-formed datatypes using W-types *)
+Axiom W : forall (S: Type) (P: S -> Type), Type.
+Axiom sup : forall (S: Type) (P: S -> Type) (s: S), ((P s) -> (W S P)) -> W S P.
+Axiom ind_W : forall (S: Type) (P: S -> Type) (C: (W S P) -> Type),
+    (forall (s: S) (f: (P s) -> (W S P)), (forall (p: P s), C (f p)) -> C (sup S P s f)) -> (forall (x: W S P), C x).
+
+Definition True := forall (P: Type), P -> P.
+
+Definition I := (fun (A: Type) (x: A) => x) : True.
+
+Definition False := forall (P: Type), P.
+
+Definition elim_False := fun (P: Type) (f: False) => f P.
+
+Definition Bool := forall (A: Type), A -> A -> A.
+
+Definition tt := (fun (A: Type) (x _: A) => x) : Bool.
+Definition ff := (fun (A: Type) (_ y: A) => y) : Bool.
+
+Definition nat_prop := fun (b: Bool) => b Type True False.
+
+Definition nat := W Bool nat_prop.
+Definition nat_cons := (sup Bool nat_prop) : forall (b: Bool), ((nat_prop b) -> nat) -> nat.
+
+Definition Z := nat_cons ff (elim_False nat).
+Definition S := fun (n: nat) => (nat_cons tt (fun (_: True) => n)) : nat.
+
+Definition ind_nat := fun (P: nat -> Type) (IH0: P Z) (IHn: forall (n: nat), (P n) -> P (S n)) =>
+    ind_W Bool nat_prop P (fun (b: Bool) (f: (nat_prop b) -> nat) (g: forall (c: nat_prop b), P (f c)) =>
+        _ (* requires dependent elimination for Bool *)).
