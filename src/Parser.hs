@@ -20,8 +20,9 @@ data AST
     | ASTLam Var (Maybe AST) AST
 
 instance Show ParExp where
-    show (Parens xs) = "(" ++ unwords (fmap show xs) ++ ")"
+    show (Parens xs) = "(" ++ show xs ++ ")"
     show (Tok s) = s
+    showList xs s = unwords (fmap show xs) ++ s
 
 isTokChar :: Char -> Bool
 isTokChar ',' = False
@@ -247,7 +248,11 @@ parseCommands u [] = pure ([],u)
 
 interpret :: String -> CommandState -> Cmd CommandState
 interpret s (ctx,ord,u) = do
-    let toks = fst (tokenize s)
+    let (toks,r) = tokenize s
+    unless (r == "") (throwError
+        ("Parsed \""
+        ++ (let s = show toks in if length s > 75 then "..." ++ drop (length s - 75) s else s)
+        ++ "\" but did not consume entire sequence."))
     (cmds,u) <- parseCommands u (wordsWhen (==Tok ".") toks)
     i (ctx,ord,u) cmds
         where
