@@ -19,13 +19,13 @@ Reduction (bool_dep_elim ff) := fun (A: bool -> Type)
 Definition if := fun (b: bool) (A: Type) (x y: A) =>
     bool_dep_elim b (fun (_: bool) => A) x y.
 
-(* ..equality... *)
+(* ...equality... *)
 Axiom Eq : forall (A: Type) (x y: A), Type.
 Axiom Eq_refl : forall (A: Type) (x: A), Eq A x x.
 Axiom Eq_elim : forall (A: Type) (P: A -> Type) (x y: A), (Eq A x y) -> (P x) -> (P y).
 
 Definition cast := fun (A B: Type) (H: Eq Type A B) (a: A) => Eq_elim Type (fun (T: Type) => T) A B H a.
-Definition eapply := fun (A B: Type) (P: A -> B) (x y: A) (H: Eq A x y) =>
+Definition eq_apply := fun (A B: Type) (P: A -> B) (x y: A) (H: Eq A x y) =>
     Eq_elim A (fun (y: A) => Eq B (P x) (P y)) x y H (Eq_refl B (P x)).
 
 (* ...the types 1 and 0... *)
@@ -52,11 +52,11 @@ Definition Z := nat_cons ff (fun (x: False) => elim_False x nat).
 Definition S := fun (n: nat) => (nat_cons tt (fun (_: True) => n)) : nat.
 
 Definition succ_f_eq := fun (f: True -> nat) =>
-    (eapply (True -> nat) nat (nat_cons tt) (fun (_: True) => f I) f (ext_for_True nat f))
+    (eq_apply (True -> nat) nat (nat_cons tt) (fun (_: True) => f I) f (ext_for_True nat f))
     : Eq nat (nat_cons tt (fun (_: True) => (f I))) (nat_cons tt f).
 
 Definition zero_eq := fun (f0 f1: False -> nat) =>
-    (eapply (False -> nat) nat (nat_cons ff) f0 f1 (ext_for_False nat f0 f1))
+    (eq_apply (False -> nat) nat (nat_cons ff) f0 f1 (ext_for_False nat f0 f1))
     : Eq nat (nat_cons ff f0) (nat_cons ff f1).
 
 Definition ind_nat := fun (P: nat -> Type) (IH0: P Z) (IHn: forall (n: nat), (P n) -> P (S n)) =>
@@ -64,7 +64,10 @@ Definition ind_nat := fun (P: nat -> Type) (IH0: P Z) (IHn: forall (n: nat), (P 
         bool_dep_elim b (fun (b0: bool) =>
             forall (f0: (nat_prop b0) -> nat) (g: forall (c0: nat_prop b0), P (f0 c0)), P (nat_cons b0 f0))
         (fun (f0: (nat_prop tt) -> nat) (g0: forall (c0: nat_prop tt), P (f0 c0)) =>
-            cast (P (S (f0 I))) (P (nat_cons tt f0)) (eapply nat Type P (S (f0 I)) (nat_cons tt f0) (succ_f_eq f0)) (IHn (f0 I) (g0 I)))
+            cast (P (S (f0 I))) (P (nat_cons tt f0)) (eq_apply nat Type P (S (f0 I)) (nat_cons tt f0) (succ_f_eq f0)) (IHn (f0 I) (g0 I)))
         (fun (f0: (nat_prop ff) -> nat) (g0: forall (c0: nat_prop ff), P (f0 c0)) =>
-            cast (P Z) (P (nat_cons ff f0)) (eapply nat Type P Z (nat_cons ff f0) (zero_eq (fun (x: False) => elim_False x nat) f0)) IH0)
+            cast (P Z) (P (nat_cons ff f0)) (eq_apply nat Type P Z (nat_cons ff f0) (zero_eq (fun (x: False) => elim_False x nat) f0)) IH0)
         f g)) : forall (n: nat), P n.
+
+Check ind_nat.
+(* Has type forall (a : nat -> Type), (a Z) -> (forall (d : nat), (a d) -> a (S d)) -> forall (d : nat), a d. *)
