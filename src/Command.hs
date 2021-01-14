@@ -3,11 +3,11 @@ import TT
 import Graph
 import Control.Monad.Except
 import Control.Monad.Writer
-import Data.List
 
 data Command
     = Axiom String Exp
     | Define String Exp
+    | Redex Exp Exp
     | Check Exp
     | Eval Exp
     | Print [String]
@@ -18,6 +18,7 @@ data Command
 data CommandOutput
     = DefAxiom String Val
     | Defined String Val Val
+    | DefRedex Val Val
     | Checked Val
     | Evaluated Val
     | PrintCtx Ctx
@@ -32,18 +33,17 @@ runCmd = runWriter . runExceptT
 instance Show CommandOutput where
     show (DefAxiom s v) = "Defined Axiom \'" ++ s ++ "\' : " ++ show v ++ ".\n"
     show (Defined s t v) = "Defined \'" ++ s ++ "\' : " ++ show t ++ "\n    := " ++ show v ++ ".\n"
+    show (DefRedex u v) = "Defined Reduction (" ++ show u ++ ")\n    := " ++ show v ++ ".\n"
     show (Checked v) = "Has type " ++ show v ++ ".\n"
     show (Evaluated v) = "Results in " ++ show v ++ ".\n"
-    show (PrintCtx c) = intercalate "\n\n" (fmap (\(n,(t,d)) -> case d of
-        Just d -> "Definition '" ++ n ++ "' : " ++ show t ++ "\n    := " ++ show d ++ "."
-        Nothing -> "Axiom '" ++ n ++ "' : " ++ show t ++ ".") c) ++ "\n"
+    show (PrintCtx c) = show c
     show (PrintGraph g) = showOrdering g
     show Success = "Ok.\n"
 
 type CommandState = (Ctx,OrderingGraph,UniverseID)
 
 inCtx :: Name -> Ctx -> Bool
-inCtx n ctx = n `elem` fmap fst ctx
+inCtx n ctx = n `elem` ctxNames ctx
 
 emptyState :: CommandState
 emptyState = ([],[],0)
@@ -55,12 +55,19 @@ docmd (Axiom n e) (ctx,ord,u) = do
     ((_,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
     (x,u) <- liftEither (runRes u (eval ctx e))
     tell [DefAxiom n x]
-    pure ((n,(x,Nothing)):ctx,ord,u)
+    pure (CtxAxiom n x:ctx,ord,u)
 docmd (Define n e) (ctx,ord,u) = do
     ((t,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
     (x,u) <- liftEither (runRes u (eval ctx e))
     tell [Defined n t x]
-    pure ((n,(t,Just x)):ctx,ord,u)
+    pure (CtxDelta n t x:ctx,ord,u)
+docmd (Redex i j) (ctx,ord,u) = do
+    ((t,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord i))
+    (i,u) <- liftEither (runRes u (eval ctx i))
+    (ord,u) <- liftEither (runRes u (checkWithOrderCheck ctx ord j t))
+    (j,u) <- liftEither (runRes u (eval ctx j))
+    tell [DefRedex i j]
+    pure (CtxRedex i j:ctx,ord,u)
 docmd (Check e) (ctx,ord,u) = do
     ((t,_),_) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
     tell [Checked t]
@@ -71,8 +78,8 @@ docmd (Eval e) (ctx,ord,u) = do
     tell [Evaluated x]
     pure (ctx,ord,u)
 docmd (Print ns) (ctx,ord,u) = do
-    defs <- mapM (\n -> case lookup n ctx of
-        Just d -> pure (n,d)
+    defs <- mapM (\n -> case getElem n ctx of
+        Just d -> pure d
         Nothing -> throwError ("Identifier \"" ++ show n ++ "\" is not defined.")) ns
     tell [PrintCtx defs]
     pure (ctx,ord,u)

@@ -226,6 +226,10 @@ parseCommand u xs = case xs of
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
+        (Tok "Reduction":Parens is:Tok ":=":os) -> do
+            (is,u) <- parseParExp is >>= elab u []
+            (os,u) <- parseParExp os >>= elab u []
+            pure (Redex is os,u)
         xs -> throwError ("Unrecognised command \"" ++ unwords (fmap show xs) ++ "\".")
 
 trim :: String -> String

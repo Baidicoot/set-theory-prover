@@ -118,11 +118,46 @@ showVal = showNames names
 instance Show Val where
     show = showNames names []
 
-showCtx :: Ctx -> String
-showCtx ctx = "[" ++ intercalate ", " (fmap (\(n,(t,v))->show n ++ " : " ++ show t) ctx) ++ "]"
+data CtxElem
+    = CtxAxiom Name Val
+    | CtxDelta Name Val Val
+    | CtxRedex Val Val
 
--- typing contexts (name, type, delta-expansion)
-type Ctx = [(Name,(Val,Maybe Val))]
+ctxNames :: Ctx -> [Name]
+ctxNames = concatMap (\x -> case x of
+    CtxAxiom n _ -> [n]
+    CtxDelta n _ _ -> [n]
+    CtxRedex _ _ -> [])
+
+getElem :: Name -> Ctx -> Maybe CtxElem
+getElem n (a@(CtxAxiom m _):_) | n == m = Just a
+getElem n (a@(CtxDelta m _ _):_) | n == m = Just a
+getElem n (_:xs) = getElem n xs
+getElem _ [] = Nothing
+
+instance Show CtxElem where
+    show (CtxAxiom n t) = "Axiom '" ++ n ++ "' : " ++ show t ++ "."
+    show (CtxDelta n t d) = "Definition '" ++ n ++ "' : " ++ show t ++ "\n    := " ++ show d ++ "."
+    show (CtxRedex u v) = "Reduction (" ++ show u ++ ")\n    := " ++ show v ++ "."
+
+    showList xs s = intercalate "\n\n" (fmap show xs) ++ s
+
+type Ctx = [CtxElem]
+
+typeInCtx :: Name -> Ctx -> Maybe Val
+typeInCtx n (CtxAxiom m t:_) | n == m = Just t
+typeInCtx n (CtxDelta m t _:_) | n == m = Just t
+typeInCtx n (_:xs) = typeInCtx n xs
+typeInCtx _ [] = Nothing
+
+deltaInCtx :: Name -> Ctx -> Maybe Val
+deltaInCtx n (CtxDelta m _ r:_) | n == m = Just r
+deltaInCtx n (_:xs) = deltaInCtx n xs
+deltaInCtx _ [] = Nothing
+
+trace :: String -> Res a -> Res a
+trace s r = catchError r (\e -> throwError (e ++ "\n" ++ s))
+
 -- evaluation environments - should NOT include references to itself!
 type Env = [Maybe Val]
 type Res = RWST [Var] [Constraint] UniverseID (Except String)
@@ -199,43 +234,67 @@ evalApp g f@(VPi (Abs _ x)) v = fmap (modifFree (\x->x-1) 0) (substVal g 0 (modi
 evalApp _ f x = error ("CRITICAL ERROR (this should not occur): non-function application of " ++ show f ++ " to " ++ show x)
 
 ehnf :: Ctx -> Val -> Res Val
-ehnf g v@(VApp (VFree n) xs) = case lookup n g of
-    Just (_,Just d) -> foldM (evalApp g) d xs >>= ehnf g
+ehnf g v@(VApp (VFree n) xs) = case deltaInCtx n g of
+    Just d -> foldM (evalApp g) d xs >>= ehnf g
     _ -> pure v
 ehnf _ v = pure v
 
+-- match val, redex
+matchRedex :: Ctx -> Val -> Val -> Res Bool
+matchRedex g (VSet _) (VSet _) = pure True
+matchRedex g (VPi (Abs _ a)) (VPi (Abs _ b)) = matchRedex g a b
+matchRedex g (VLam (Abs _ a)) (VLam (Abs _ b)) = matchRedex g a b
+matchRedex g (VApp n as) (VApp m bs) | n == m && length as == length bs = and <$> zipWithM (matchRedex g) as bs
+matchRedex g a b = do
+    a' <- reduce g a
+    b' <- reduce g b
+    case (a',b') of
+        (Just a,Just b) -> matchRedex g a b
+        (Just a,Nothing) -> matchRedex g a b
+        (Nothing,Just b) -> matchRedex g a b
+        (Nothing,Nothing) -> pure False
+
+rhoReduce :: Ctx -> Val -> Ctx -> Res (Maybe Val)
+rhoReduce g (VApp n ns) (CtxRedex (VApp m ms) o:xs) | n == m && length ns >= length ms = do
+    match <- and <$> zipWithM (matchRedex g) (take (length ms) ns) ms
+    if match then
+        Just <$> foldM (evalApp xs) o (drop (length ms) ns)
+    else
+        rhoReduce g (VApp n ns) xs
+rhoReduce g v (_:xs) = rhoReduce g v xs
+rhoReduce _ _ _ = pure Nothing
+
+deltaReduce :: Ctx -> Val -> Res (Maybe Val)
+deltaReduce g (VApp (VFree n) ns) = mapM (\x -> foldM (evalApp g) x ns) (deltaInCtx n g)
+deltaReduce _ _ = pure Nothing
+
+reduce :: Ctx -> Val -> Res (Maybe Val)
+reduce g v = do
+    r <- rhoReduce g v g
+    case r of
+        Nothing -> deltaReduce g v
+        Just r -> pure (Just r)
+
 fit :: Ctx -> Val -> Val -> Res ()
-fit g v0@(VPi ab) v1@(VPi bb) = matchAbs g ab bb
-fit g v0@(VLam ab) v1@(VLam bb) = matchAbs g ab bb
+fit g v0@(VPi ab) v1@(VPi bb) = fitAbs g ab bb
+fit g v0@(VLam ab) v1@(VLam bb) = fitAbs g ab bb
 fit g (VSet i) (VSet j) = tell [j :>=: i]
 fit g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b =
     mapM_ (uncurry (fit g)) (zip as bs)
-fit g a@(VApp (VFree n) xs) b = case lookup n g of
-    Just (_,Just d) -> do
-        a' <- foldM (evalApp g) d xs
-        fit g a' b
-    _ -> case b of
-        VApp (VFree n) xs -> case lookup n g of
-            Just (_,Just d) -> do
-                b' <- foldM (evalApp g) d xs
-                fit g a b'
-            _ -> do
-                vs <- getVars
-                throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
-fit g a b@(VApp (VFree n) xs) = case lookup n g of
-    Just (_,Just d) -> do
-        b' <- foldM (evalApp g) d xs
-        fit g a b'
-    _ -> do
-        vs <- getVars
-        throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
 fit g a b = do
-    vs <- getVars
-    throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
+    a' <- reduce g a
+    b' <- reduce g b
+    case (a', b') of
+        (Just a,Just b) -> fit g a b
+        (Just a,Nothing) -> fit g a b
+        (Nothing,Just b) -> fit g a b
+        (Nothing,Nothing) -> do
+            vs <- getVars
+            throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
 
-matchAbs :: Ctx -> Abstraction Val -> Abstraction Val -> Res ()
-matchAbs g (Abs (Just a) b) (Abs (Just x) y) = fit g a x >> fit g b y
-matchAbs g (Abs _ a) (Abs _ b) = fit g a b
+fitAbs :: Ctx -> Abstraction Val -> Abstraction Val -> Res ()
+fitAbs g (Abs (Just a) b) (Abs (Just x) y) = fit g a x >> fit g b y
+fitAbs g (Abs _ a) (Abs _ b) = fit g a b
 
 markFree :: Int -> Val -> Exp -> Exp
 markFree n x (Var i _) | n == i = Var i (Just x)
@@ -257,8 +316,8 @@ infer g (Set i) = do
     tell [j :>: i]
     pure (VSet j)
 infer g (Var i (Just t)) = pure t
-infer g (Free n) = case lookup n g of
-    Just (t,_) -> pure t
+infer g (Free n) = case typeInCtx n g of
+    Just t -> pure t
     Nothing -> throwError ("Undefined identifier \"" ++ show n ++ "\"")
 infer g (Ann x t) = do
     i <- freshUniverse
@@ -317,6 +376,11 @@ inferWithOrderCheck g gr e = do
     (v,c) <- listen (infer g e)
     gr <- appConstraints gr c
     pure (v,gr)
+
+checkWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Val -> Res OrderingGraph
+checkWithOrderCheck g gr e t = do
+    (_,c) <- listen (check g e t)
+    appConstraints gr c
 
 showPar :: Show x => x -> String
 showPar x | ' ' `elem` show x = "(" ++ show x ++ ")"

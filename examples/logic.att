@@ -7,6 +7,9 @@ Definition False := forall (P: Type), P.
 Definition bool := forall (A: Type), A -> A -> A.
 
 Definition true := (fun (A: Type) (x _: A) => x) : bool.
+
+Print All.
+
 Definition false := (fun (A: Type) (_ y: A) => y) : bool.
 
 Definition ~ := fun (A: Type) => (A -> False) : Type.

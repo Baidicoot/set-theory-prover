@@ -1,8 +1,22 @@
 (* well-formed datatypes using W-types *)
-Axiom W : forall (S: Type) (P: S -> Type), Type.
+Axiom W : forall (S: Type), (S -> Type) -> Type.
 Axiom sup : forall (S: Type) (P: S -> Type) (s: S), ((P s) -> (W S P)) -> W S P.
 Axiom ind_W : forall (S: Type) (P: S -> Type) (C: (W S P) -> Type),
     (forall (s: S) (f: (P s) -> (W S P)), (forall (p: P s), C (f p)) -> C (sup S P s f)) -> (forall (x: W S P), C x).
+
+Axiom bool : Type.
+Axiom tt : bool.
+Axiom ff : bool.
+Axiom bool_dep_elim : forall (b: bool) (A: bool -> Type),
+    (A tt) -> (A ff) -> (A b).
+
+Reduction (bool_dep_elim tt) := fun (A: bool -> Type)
+    (c: A tt) (_: A ff) => c.
+Reduction (bool_dep_elim ff) := fun (A: bool -> Type)
+    (_: A tt) (c: A ff) => c.
+
+Definition if := fun (b: bool) (A: Type) (x y: A) =>
+    bool_dep_elim b (fun (_: bool) => A) x y.
 
 Definition True := forall (P: Type), P -> P.
 
@@ -12,19 +26,39 @@ Definition False := forall (P: Type), P.
 
 Definition elim_False := fun (P: Type) (f: False) => f P.
 
-Definition Bool := forall (A: Type), A -> A -> A.
+Definition nat_prop := fun (b: bool) => if b Type True False.
 
-Definition tt := (fun (A: Type) (x _: A) => x) : Bool.
-Definition ff := (fun (A: Type) (_ y: A) => y) : Bool.
-
-Definition nat_prop := fun (b: Bool) => b Type True False.
-
-Definition nat := W Bool nat_prop.
-Definition nat_cons := (sup Bool nat_prop) : forall (b: Bool), ((nat_prop b) -> nat) -> nat.
+Definition nat := W bool nat_prop.
+Definition nat_cons := (sup bool nat_prop) : forall (b: bool), ((nat_prop b) -> nat) -> nat.
 
 Definition Z := nat_cons ff (elim_False nat).
 Definition S := fun (n: nat) => (nat_cons tt (fun (_: True) => n)) : nat.
 
+Axiom Eq : forall (A: Type) (x y: A), Type.
+Axiom Eq_refl : forall (A: Type) (x: A), Eq A x x.
+Axiom Eq_elim : forall (A: Type) (P: A -> Type) (x y: A), (Eq A x y) -> (P x) -> (P y).
+
+Definition cast := fun (A B: Type) (H: Eq Type A B) (a: A) => Eq_elim Type (I Type) A B H a.
+Definition eapply := fun (A B: Type) (P: A -> B) (x y: A) (H: Eq A x y) =>
+    Eq_elim A (fun (y: A) => Eq B (P x) (P y)) x y H (Eq_refl B (P x)).
+
+Axiom ext_for_True : forall (A: Type) (f: True -> A), Eq (True -> A) (fun (_: True) => f I) f. 
+Axiom ext_for_False : forall (A: Type) (f0 f1: False -> A), Eq (False -> A) f0 f1.
+
+Definition succ_f_eq := fun (f: True -> nat) =>
+    (eapply (True -> nat) nat (nat_cons tt) (fun (_: True) => f I) f (ext_for_True nat f))
+    : Eq nat (nat_cons tt (fun (_: True) => (f I))) (nat_cons tt f).
+
+Definition zero_eq := fun (f0 f1: False -> nat) =>
+    (eapply (False -> nat) nat (nat_cons ff) f0 f1 (ext_for_False nat f0 f1))
+    : Eq nat (nat_cons ff f0) (nat_cons ff f1).
+
 Definition ind_nat := fun (P: nat -> Type) (IH0: P Z) (IHn: forall (n: nat), (P n) -> P (S n)) =>
-    ind_W Bool nat_prop P (fun (b: Bool) (f: (nat_prop b) -> nat) (g: forall (c: nat_prop b), P (f c)) =>
-        _ (* requires dependent elimination for Bool *)).
+    (ind_W bool nat_prop P (fun (b: bool) (f: (nat_prop b) -> nat) (g: forall (c: nat_prop b), P (f c)) =>
+        bool_dep_elim b (fun (b0: bool) =>
+            forall (f0: (nat_prop b0) -> nat) (g: forall (c0: nat_prop b0), P (f0 c0)), P (nat_cons b0 f0))
+        (fun (f0: (nat_prop tt) -> nat) (g0: forall (c0: nat_prop tt), P (f0 c0)) =>
+            cast (P (S (f0 I))) (P (nat_cons tt f0)) (eapply nat Type P (S (f0 I)) (nat_cons tt f0) (succ_f_eq f0)) (IHn (f0 I) (g0 I)))
+        (fun (f0: (nat_prop ff) -> nat) (g0: forall (c0: nat_prop ff), P (f0 c0)) =>
+            cast (P Z) (P (nat_cons ff f0)) (eapply nat Type P Z (nat_cons ff f0) (zero_eq (elim_False nat) f0)) IH0)
+        f g)) : forall (n: nat), P n.
