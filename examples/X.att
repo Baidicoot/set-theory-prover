@@ -1,0 +1,51 @@
+Axiom nat : Type.
+Axiom Z : nat.
+Axiom S : nat -> nat.
+
+Axiom rec_nat : forall (P: nat -> Type), (P Z) -> (forall (n: nat), (P n) -> P (S n)) -> forall (n: nat), P n.
+
+(* `Reduction (args) (redex) := exp` defines a ρ-reduction rule for `redex` *)
+Reduction ((P: nat -> Type) (z: P Z) (sn: forall (n: nat), (P n) -> P (S n)))
+    (rec_nat P z sn Z) := z.
+
+Reduction ((P: nat -> Type) (z: P Z) (sn: forall (n: nat), (P n) -> P (S n)) (n: nat))
+    (rec_nat P z sn (S n)) := sn n (rec_nat P z sn n).
+
+Definition double := rec_nat (fun (_: nat) => nat) Z (fun (n _: nat) => S (S n)).
+
+(* `Compute O with I` attempts to fit I to O by performing δ- and ρ-reductions *)
+Compute (S (S Z)) with double (S Z).
+(* Ok. *)
+
+Axiom fin : nat -> Type.
+Axiom finZ : forall (n: nat), fin n.
+Axiom finS : forall (n: nat), (fin n) -> fin (S n).
+
+Axiom rec_fin :
+    forall (P: forall (n: nat), (fin n) -> Type),
+    (forall (n: nat), P n (finZ n)) ->
+    (forall (n: nat) (f: fin n), (P n f) -> P (S n) (finS n f)) ->
+    forall (n: nat) (f: fin n), P n f.
+
+Reduction
+    ((P: forall (n: nat), (fin n) -> Type)
+    (z: forall (n: nat), P n (finZ n))
+    (s: forall (n: nat) (f: fin n), (P n f) -> P (S n) (finS n f))
+    (n: nat))
+    (rec_fin P z s n (finZ n)) := z n.
+Reduction
+    ((P: forall (n: nat), (fin n) -> Type)
+    (z: forall (n: nat), P n (finZ n))
+    (s: forall (n: nat) (f: fin n), (P n f) -> P (S n) (finS n f))
+    (n: nat)
+    (f: fin n))
+    (rec_fin P z s (S n) (finS n f)) := s n f (rec_fin P z s n f).
+
+(* 'recursive' function that accepts any `x: fin n` and returns `finZ n` *)
+Definition zeroify := rec_fin
+    (fun (n: nat) (f: fin n) => fin n)
+    (fun (n: nat) => finZ n)
+    (fun (n: nat) (f p: fin n) => finZ (S n)).
+
+Compute (finZ (S Z)) with zeroify (S Z) (finS Z (finZ Z)).
+(* Ok. *)

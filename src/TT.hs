@@ -50,7 +50,9 @@ showExp ns (Set i) = "Type." ++ show i
 showExp ns Hole = "_"
 showExp ns (Pi Dummy (Abs (Just d) r)) = parens (showExp ns d) ++ " -> " ++ showExp (Dummy:ns) r
 showExp ns (Pi n (Abs (Just d) r)) = "forall (" ++ show n ++ ": " ++ showExp ns d ++ "), " ++ showExp (n:ns) r
+showExp ns (Pi n (Abs Nothing r)) = "forall " ++ show n ++ ", " ++ showExp (n:ns) r
 showExp ns (Var i _) | i >= length ns = show i
+showExp ns (Var i (Just t)) = "(" ++ show (ns !! i) ++ ": " ++ showVal ns t ++ ")"
 showExp ns (Var i _) = show (ns !! i)
 showExp ns (Free n) = n
 showExp ns (App f x) = parens (showExp ns f) ++ " " ++ parens (showExp ns x)
@@ -121,13 +123,13 @@ instance Show Val where
 data CtxElem
     = CtxAxiom Name Val
     | CtxDelta Name Val Val
-    | CtxRedex Val Val
+    | CtxRedex [Var] Val Val
 
 ctxNames :: Ctx -> [Name]
 ctxNames = concatMap (\x -> case x of
     CtxAxiom n _ -> [n]
     CtxDelta n _ _ -> [n]
-    CtxRedex _ _ -> [])
+    CtxRedex _ _ _ -> [])
 
 getElem :: Name -> Ctx -> Maybe CtxElem
 getElem n (a@(CtxAxiom m _):_) | n == m = Just a
@@ -138,7 +140,7 @@ getElem _ [] = Nothing
 instance Show CtxElem where
     show (CtxAxiom n t) = "Axiom '" ++ n ++ "' : " ++ show t ++ "."
     show (CtxDelta n t d) = "Definition '" ++ n ++ "' : " ++ show t ++ "\n    := " ++ show d ++ "."
-    show (CtxRedex u v) = "Reduction (" ++ show u ++ ")\n    := " ++ show v ++ "."
+    show (CtxRedex vs u v) = "Reduction (" ++ showVal vs u ++ ")\n    := " ++ showVal vs v ++ "."
 
     showList xs s = intercalate "\n\n" (fmap show xs) ++ s
 
@@ -155,15 +157,15 @@ deltaInCtx n (CtxDelta m _ r:_) | n == m = Just r
 deltaInCtx n (_:xs) = deltaInCtx n xs
 deltaInCtx _ [] = Nothing
 
-trace :: String -> Res a -> Res a
-trace s r = catchError r (\e -> throwError (e ++ "\n" ++ s))
-
 -- evaluation environments - should NOT include references to itself!
 type Env = [Maybe Val]
 type Res = RWST [Var] [Constraint] UniverseID (Except String)
 
 runRes :: UniverseID -> Res a -> Either String (a,UniverseID)
-runRes u r = fmap (\(a,b,_) -> (a,b)) (runExcept (runRWST r [] u))
+runRes = runResVars []
+
+runResVars :: [Var] -> UniverseID -> Res a -> Either String (a,UniverseID)
+runResVars v u r = fmap (\(a,b,_) -> (a,b)) (runExcept (runRWST r v u))
 
 withVar :: Var -> Res a -> Res a
 withVar n = local (n:)
@@ -239,12 +241,32 @@ ehnf g v@(VApp (VFree n) xs) = case deltaInCtx n g of
     _ -> pure v
 ehnf _ v = pure v
 
+type Subst = [(Int,Val)]
+
+applySubst :: Ctx -> Subst -> Val -> Res Val
+applySubst g ((i,i'):xs) v = do
+    v' <- substVal g i i' v
+    applySubst g xs v'
+applySubst _ [] v = pure v
+
+matchManyRedex :: Ctx -> [(Val,Val)] -> Res (Maybe Subst)
+matchManyRedex g ((a,b):xs) = do
+    s <- matchRedex g a b
+    case s of
+        Just s -> do
+            xs' <- mapM (\(v,r) -> fmap (\r -> (v,r)) (applySubst g s r)) xs
+            s' <- matchManyRedex g xs'
+            pure (fmap (++s) s')
+        Nothing -> pure Nothing
+matchManyRedex _ [] = pure (Just [])
+
 -- match val, redex
-matchRedex :: Ctx -> Val -> Val -> Res Bool
-matchRedex g (VSet _) (VSet _) = pure True
+matchRedex :: Ctx -> Val -> Val -> Res (Maybe Subst)
+matchRedex g (VSet _) (VSet _) = pure (Just [])
 matchRedex g (VPi (Abs _ a)) (VPi (Abs _ b)) = matchRedex g a b
 matchRedex g (VLam (Abs _ a)) (VLam (Abs _ b)) = matchRedex g a b
-matchRedex g (VApp n as) (VApp m bs) | n == m && length as == length bs = and <$> zipWithM (matchRedex g) as bs
+matchRedex g v (VApp (VVar i) []) = pure (Just [(i,v)])
+matchRedex g (VApp n as) (VApp m bs) | n == m && length as == length bs = matchManyRedex g (zip as bs)
 matchRedex g a b = do
     a' <- reduce g a
     b' <- reduce g b
@@ -252,15 +274,16 @@ matchRedex g a b = do
         (Just a,Just b) -> matchRedex g a b
         (Just a,Nothing) -> matchRedex g a b
         (Nothing,Just b) -> matchRedex g a b
-        (Nothing,Nothing) -> pure False
+        (Nothing,Nothing) -> pure Nothing
 
 rhoReduce :: Ctx -> Val -> Ctx -> Res (Maybe Val)
-rhoReduce g (VApp n ns) (CtxRedex (VApp m ms) o:xs) | n == m && length ns >= length ms = do
-    match <- and <$> zipWithM (matchRedex g) (take (length ms) ns) ms
-    if match then
-        Just <$> foldM (evalApp xs) o (drop (length ms) ns)
-    else
-        rhoReduce g (VApp n ns) xs
+rhoReduce g (VApp n ns) (CtxRedex _ (VApp m ms) o:xs) | n == m && length ns >= length ms = do
+    s <- matchManyRedex g (zip (take (length ms) ns) ms)
+    case s of
+        Just s -> do
+            o' <- applySubst g s o
+            Just <$> foldM (evalApp xs) o' (drop (length ms) ns)
+        Nothing -> rhoReduce g (VApp n ns) xs
 rhoReduce g v (_:xs) = rhoReduce g v xs
 rhoReduce _ _ _ = pure Nothing
 

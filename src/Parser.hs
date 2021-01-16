@@ -134,7 +134,7 @@ parseParExp (e:es) = do
     args <- mapM (parseParExp . ext) es
     e <- parseParExp (ext e)
     pure (foldl ASTApp e args)
-parseParExp x = throwError ("could not parse \"" ++ unwords (fmap show x) ++ "\"")
+parseParExp x = throwError ("Could not parse expression \"" ++ unwords (fmap show x) ++ "\"")
 
 parseConstraints :: [ParExp] -> Cmd [Constraint]
 parseConstraints xs = fmap concat (mapM parseConstraint (wordsWhen (==Tok ",") xs))
@@ -212,6 +212,28 @@ elab u ns (ASTApp f x) = do
 parse :: UniverseID -> String -> Cmd (Exp,UniverseID)
 parse u = elab u [] <=< parseParExp . fst . tokenize
 
+parseParRedex :: [Var] -> [ParExp] -> Cmd Exp
+parseParRedex ns [Tok n] = case indexOf ns (User n) of
+    Just i -> pure (Var i Nothing)
+    Nothing -> pure (Free n)
+parseParRedex ns (Tok n:es) = foldl App (Free n) <$> mapM (parseParRedex ns . ext) es
+parseParRedex _ xs = throwError ("Could not parse reducible expression \"" ++ unwords (fmap show xs) ++ "\"")
+
+elabRedexArgs :: UniverseID -> [Var] -> [(Var,Maybe AST)] -> Cmd ([(Name,Exp)], UniverseID)
+elabRedexArgs u ns ((User n,Just t):xs) = do
+    (t,u) <- elab u ns t
+    fmap (\(xs,u) -> (xs ++ [(n,t)],u)) (elabRedexArgs u (User n:ns) xs)
+elabRedexArgs u _ [] = pure ([],u)
+elabRedexArgs _ _ xs = throwError ("Could not parse redex arguments \""
+    ++ unwords (fmap (show . fst) xs) ++ "\"")
+
+parseRedex :: UniverseID -> [ParExp] -> [ParExp] -> [ParExp] -> Cmd (([(Name,Exp)], Exp, Exp), UniverseID)
+parseRedex u as rs es = do
+    (args,u) <- parseArgs as >>= elabRedexArgs u []
+    r <- parseParRedex (fmap (User . fst) args) rs
+    (e,u) <- parseParExp es >>= elab u (fmap (User . fst) args)
+    pure ((args, r, e),u)
+
 parseCommand :: UniverseID -> [ParExp] -> Cmd (Command,UniverseID)
 parseCommand u xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
@@ -222,14 +244,20 @@ parseCommand u xs = case xs of
             pure (Define n x,u)
         (Tok "Check":Tok "Constraint":xs) -> fmap (\a -> (CheckConstraints a,u)) (parseConstraints xs)
         (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= elab u [])
+        (Tok "Compute":Parens bs:Tok "with":as) -> do
+            (a,u) <- parseParExp as >>= elab u []
+            (b,u) <- parseParExp bs >>= elab u []
+            pure (Match a b,u)
         (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= elab u [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
         (Tok "Reduction":Parens is:Tok ":=":os) -> do
-            (is,u) <- parseParExp is >>= elab u []
-            (os,u) <- parseParExp os >>= elab u []
-            pure (Redex is os,u)
+            ((_,is,os),u) <- parseRedex u [] is os
+            pure (Redex [] [] is os,u)
+        (Tok "Reduction":Parens args:Parens is:Tok ":=":os) -> do
+            ((args,is,os),u) <- parseRedex u args is os
+            pure (Redex (fmap (User . fst) args) (fmap snd args) is os,u)
         xs -> throwError ("Unrecognised command \"" ++ unwords (fmap show xs) ++ "\".")
 
 trim :: String -> String
