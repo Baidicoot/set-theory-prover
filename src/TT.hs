@@ -104,7 +104,7 @@ showNames us ns (VLam abs) =
     let (v,t,x) = showNamesAbs us ns abs
     in case t of
         Just t -> "fun (" ++ v ++ " : " ++ t ++ ") => " ++ x
-        _ -> "lam " ++ v ++ " => " ++ x
+        _ -> "fun " ++ v ++ " => " ++ x
 showNames us ns (VPi abs) =
     let (v,Just t,x) = showNamesAbs us ns abs
     in  if boundVarUsed abs then

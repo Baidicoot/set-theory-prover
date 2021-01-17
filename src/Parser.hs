@@ -81,11 +81,12 @@ ext (Parens xs) = xs
 parseIdents :: [ParExp] -> Cmd [Name]
 parseIdents (Tok n:ns) = fmap (n:) (parseIdents ns)
 parseIdents [] = pure []
-parseIdents xs = throwError ("could not parse identifiers '\"" ++ unwords (fmap show xs) ++ "'\"")
+parseIdents xs = throwError ("Could not parse identifiers \"" ++ unwords (fmap show xs) ++ "\"")
 
 parseName :: ParExp -> Cmd Var
 parseName (Tok "_") = pure Dummy
 parseName (Tok n) = pure (User n)
+parseName xs = throwError ("Could not parse name \"" ++ show xs ++ "\"")
 
 parseNames :: [ParExp] -> Cmd [Var]
 parseNames = mapM parseName
@@ -244,9 +245,9 @@ parseCommand u xs = case xs of
             pure (Define n x,u)
         (Tok "Check":Tok "Constraint":xs) -> fmap (\a -> (CheckConstraints a,u)) (parseConstraints xs)
         (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= elab u [])
-        (Tok "Compute":Parens bs:Tok "with":as) -> do
+        (Tok "Compute":bs:Tok "with":as) -> do
             (a,u) <- parseParExp as >>= elab u []
-            (b,u) <- parseParExp bs >>= elab u []
+            (b,u) <- parseParExp (ext bs) >>= elab u []
             pure (Match a b,u)
         (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= elab u [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
