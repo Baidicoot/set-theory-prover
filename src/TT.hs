@@ -161,6 +161,9 @@ deltaInCtx _ [] = Nothing
 type Env = [Maybe Val]
 type Res = RWST [Var] [Constraint] UniverseID (Except String)
 
+trace :: String -> Res a -> Res a
+trace s m = catchError m (\e -> throwError (e ++ "\n" ++ s))
+
 runRes :: UniverseID -> Res a -> Either String (a,UniverseID)
 runRes = runResVars []
 
@@ -256,7 +259,7 @@ matchManyRedex g ((a,b):xs) = do
         Just s -> do
             xs' <- mapM (\(v,r) -> fmap (\r -> (v,r)) (applySubst g s r)) xs
             s' <- matchManyRedex g xs'
-            pure (fmap (++s) s')
+            pure (fmap (s++) s')
         Nothing -> pure Nothing
 matchManyRedex _ [] = pure (Just [])
 
@@ -299,21 +302,24 @@ reduce g v = do
         Just r -> pure (Just r)
 
 fit :: Ctx -> Val -> Val -> Res ()
-fit g v0@(VPi ab) v1@(VPi bb) = fitAbs g ab bb
-fit g v0@(VLam ab) v1@(VLam bb) = fitAbs g ab bb
+fit g v0@(VPi ab) v1@(VPi bb) = trace "inside pi-abstraction" $ fitAbs g ab bb
+fit g v0@(VLam ab) v1@(VLam bb) = trace "inside lam-abstraction" $ fitAbs g ab bb
 fit g (VSet i) (VSet j) = tell [j :>=: i]
-fit g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b =
-    mapM_ (uncurry (fit g)) (zip as bs)
+fit g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b = do
+    vs <- getVars
+    trace ("while fitting " ++ showVal vs v0 ++ " and " ++ showVal vs v1) $ mapM_ (uncurry (fit g)) (zip as bs)
 fit g a b = do
-    a' <- reduce g a
-    b' <- reduce g b
-    case (a', b') of
-        (Just a,Just b) -> fit g a b
-        (Just a,Nothing) -> fit g a b
-        (Nothing,Just b) -> fit g a b
-        (Nothing,Nothing) -> do
-            vs <- getVars
-            throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
+    vs <- getVars
+    trace ("while fitting " ++ showVal vs a ++ " and " ++ showVal vs b) $ do
+        a' <- reduce g a
+        b' <- reduce g b
+        case (a', b') of
+            (Just a,Just b) -> fit g a b
+            (Just a,Nothing) -> fit g a b
+            (Nothing,Just b) -> fit g a b
+            (Nothing,Nothing) -> do
+                vs <- getVars
+                throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
 
 fitAbs :: Ctx -> Abstraction Val -> Abstraction Val -> Res ()
 fitAbs g (Abs (Just a) b) (Abs (Just x) y) = fit g a x >> fit g b y
