@@ -15,6 +15,9 @@ data Command
     | PrintUniverses
     | CheckConstraints [Constraint]
     | Match Exp Exp
+    | Ehnf Exp
+    | Unfolding [Name]
+    | EvalUnfold [Name] Exp
 
 data CommandOutput
     = DefAxiom String Val
@@ -44,70 +47,98 @@ instance Show CommandOutput where
     show (PrintGraph g) = showOrdering g
     show Success = "Ok.\n"
 
-type CommandState = (Ctx,OrderingGraph,UniverseID)
+type CommandState = (Ctx,OrderingGraph,UniverseID,EvalCtx)
 
 inCtx :: Name -> Ctx -> Bool
 inCtx n ctx = n `elem` ctxNames ctx
 
 emptyState :: CommandState
-emptyState = ([],[],0)
+emptyState = ([],[],0,[])
 
 marksFree :: [(Int,Val)] -> Exp -> Exp
 marksFree ((i,v):vs) e = marksFree vs (markFree i v e)
 marksFree _ e = e
 
+mapLeft :: (a -> b) -> Either a c -> Either b c
+mapLeft f (Left e) = Left (f e)
+mapLeft _ (Right x) = Right x
+
+catchHoles = liftEither . mapLeft (unlines . fmap (\(n,vs,v) -> "Found hole '?" ++ n ++ "' of type \"" ++ showVal vs v ++ "\""))
+
 docmd :: Command -> CommandState -> Cmd CommandState
-docmd (Axiom n _) (ctx,ord,u) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
-docmd (Define n _) (ctx,ord,u) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
-docmd (Axiom n e) (ctx,ord,u) = do
-    ((_,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
-    (x,u) <- liftEither (runRes u (eval ctx e))
+docmd (Axiom n _) (ctx,ord,u,e) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
+docmd (Define n _) (ctx,ord,u,e) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
+docmd (Axiom n e) (ctx,ord,u,ev) = do
+    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
+    (_,ord) <- catchHoles r
+    (x,u) <- liftEither (runRes ev u (eval ctx e))
     tell [DefAxiom n x]
-    pure (CtxAxiom n x:ctx,ord,u)
-docmd (Define n e) (ctx,ord,u) = do
-    ((t,ord),u) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
-    (x,u) <- liftEither (runRes u (eval ctx e))
+    pure (CtxAxiom n x:ctx,ord,u,ev)
+docmd (Define n e) (ctx,ord,u,ev) = do
+    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
+    (t,ord) <- catchHoles r
+    (x,u) <- liftEither (runRes ev u (eval ctx e))
     tell [Defined n t x]
-    pure (CtxDelta n t x:ctx,ord,u)
-docmd (Redex vrs vs i j) (ctx,ord,u) = do
+    pure (CtxDelta n t x:ctx,ord,u,ev)
+docmd (Redex vrs vs i j) (ctx,ord,u,ev) = do
     (vs,u,ord) <- chkAll u ord (reverse vs) []
-    ((t,ord),u) <- liftEither (runResVars vrs u (inferWithOrderCheck ctx ord (marksFree (zip [0..] vs) i)))
-    (i,u) <- liftEither (runResVars vrs u (eval ctx i))
-    (ord,u) <- liftEither (runResVars vrs u (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) j) t))
-    (j,u) <- liftEither (runResVars vrs u (eval ctx j))
+    (r,u) <- liftEither (runResVars vrs ev u (inferWithOrderCheck ctx ord (marksFree (zip [0..] vs) i)))
+    (t,ord) <- catchHoles r
+    (i,u) <- liftEither (runResVars vrs ev u (eval ctx i))
+    (r,u) <- liftEither (runResVars vrs ev u (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) j) t))
+    ord <- catchHoles r
+    (j,u) <- liftEither (runResVars vrs ev u (eval ctx j))
     tell [DefRedex vrs i j]
-    pure (CtxRedex vrs i j:ctx,ord,u)
+    pure (CtxRedex vrs i j:ctx,ord,u,ev)
     where
         chkAll :: UniverseID -> OrderingGraph -> [Exp] -> [Val] -> Cmd ([Val],UniverseID,OrderingGraph)
         chkAll u ord (e:es) vs = do
-            (ord,u) <- liftEither (runRes (u+1) (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) e) (VSet u)))
-            (v,u) <- liftEither (runRes u (eval ctx e))
+            (r,u) <- liftEither (runRes ev (u+1) (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) e) (VSet u)))
+            ord <- catchHoles r
+            (v,u) <- liftEither (runRes ev u (eval ctx e))
             chkAll u ord es (fmap (modifFree (+1) 0) (v:vs))
-        chkAll u ord [] vs = pure (vs,u,ord)
-docmd (Check e) (ctx,ord,u) = do
-    ((t,_),_) <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
+        chkAll u ord ev vs = pure (vs,u,ord)
+docmd (Check e) (ctx,ord,u,ev) = do
+    (r,_) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
+    (t,_) <- catchHoles r
     tell [Checked t]
-    pure (ctx,ord,u)
-docmd (Eval e) (ctx,ord,u) = do
-    (_,u') <- liftEither (runRes u (inferWithOrderCheck ctx ord e))
-    (x,_) <- liftEither (runRes u' (eval ctx e))
+    pure (ctx,ord,u,ev)
+docmd (Eval e) (ctx,ord,u,ev) = do
+    (_,u') <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
+    (x,_) <- liftEither (runRes ev u' (eval ctx e))
     tell [Evaluated x]
-    pure (ctx,ord,u)
-docmd (Match a b) (ctx,ord,u) = do
-    (_,u) <- liftEither (runRes u (inferWithOrderCheck ctx ord a))
-    (a,u) <- liftEither (runRes u (eval ctx a))
-    (_,u) <- liftEither (runRes u (inferWithOrderCheck ctx ord b))
-    (b,u) <- liftEither (runRes u (eval ctx b))
-    liftEither (runRes u (fit ctx a b))
+    pure (ctx,ord,u,ev)
+docmd (Ehnf e) (ctx,ord,u,ev) = do
+    (_,u') <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
+    (x,_) <- liftEither (runRes ev u' (eval ctx e >>= ehnf ctx))
+    tell [Evaluated x]
+    pure (ctx,ord,u,ev)
+docmd (EvalUnfold ns e) (ctx,ord,u,ev) = do
+    (_,u') <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
+    (x,_) <- liftEither (runRes (ev ++ ns) u' (eval ctx e))
+    tell [Evaluated x]
+    pure (ctx,ord,u,ev)
+docmd (Unfolding ns) (ctx,ord,u,ev) = do
+    mapM_ (\n -> case getElem n ctx of
+        Just _ -> pure ()
+        _ -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ev    
     tell [Success]
-    pure (ctx,ord,u)
-docmd (Print ns) (ctx,ord,u) = do
+    pure (ctx,ord,u,ev++ns)
+docmd (Match a b) (ctx,ord,u,ev) = do
+    (_,u) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord a))
+    (a,u) <- liftEither (runRes ev u (eval ctx a))
+    (_,u) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord b))
+    (b,u) <- liftEither (runRes ev u (eval ctx b))
+    liftEither (runRes ev u (fit ctx a b))
+    tell [Success]
+    pure (ctx,ord,u,ev)
+docmd (Print ns) (ctx,ord,u,ev) = do
     defs <- mapM (\n -> case getElem n ctx of
         Just d -> pure d
-        Nothing -> throwError ("Identifier \"" ++ show n ++ "\" is not defined.")) ns
+        Nothing -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ns
     tell [PrintCtx defs]
-    pure (ctx,ord,u)
-docmd PrintAll (ctx,ord,u) = tell [PrintCtx ctx] >> pure (ctx,ord,u)
-docmd PrintUniverses (ctx,ord,u) = tell [PrintGraph ord] >> pure (ctx,ord,u)
-docmd (CheckConstraints cs) (ctx,ord,u) =
-    liftEither (runRes u (appConstraints ord cs)) >> tell [Success] >> pure (ctx,ord,u)
+    pure (ctx,ord,u,ev)
+docmd PrintAll (ctx,ord,u,ev) = tell [PrintCtx ctx] >> pure (ctx,ord,u,ev)
+docmd PrintUniverses (ctx,ord,u,ev) = tell [PrintGraph ord] >> pure (ctx,ord,u,ev)
+docmd (CheckConstraints cs) (ctx,ord,u,ev) =
+    liftEither (runRes ev u (appConstraints ord cs)) >> tell [Success] >> pure (ctx,ord,u,ev)

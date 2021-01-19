@@ -50,22 +50,6 @@ Definition zeroify := rec_fin
 Compute (finZ (S Z)) with zeroify (S (S Z)) (finS (S Z) (finZ Z)).
 (* Ok. *)
 
-(* `fin Z` can fill the role of the `0` type *)
-Definition absurd := forall (a: Type), a.
-
-Definition if_z_absurd_else_nat := rec_nat (fun _ => Type) absurd (fun _ _ => nat).
-
-Definition fin_Z_absurd := fun (H: fin Z) =>
-    (rec_fin
-        (fun n _ => if_z_absurd_else_nat n)
-        (fun _ => Z)
-        (fun _ _ _ => Z)
-        Z
-        H) : absurd.
-
-Check fin_Z_absurd.
-(* Has type (fin Z) -> absurd. *)
-
 Definition bool := fin (S (S Z)).
 Definition tt := (finZ (S Z)) : bool.
 Definition ff := (finS (S Z) (finZ Z)) : bool.

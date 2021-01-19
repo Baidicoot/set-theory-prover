@@ -35,7 +35,7 @@ instance Show Var where
 data Exp
     = Ann Exp Exp
     | Set UniverseID
-    | Hole
+    | Hole Name
     | Pi Var (Abstraction Exp)
     -- variable is marked with a type if free
     | Var Int (Maybe Val)
@@ -46,8 +46,8 @@ data Exp
 
 showExp :: [Var] -> Exp -> String
 showExp ns (Ann e t) = parens (showExp ns e) ++ " : " ++ showExp ns t
-showExp ns (Set i) = "Type." ++ show i
-showExp ns Hole = "_"
+showExp ns (Set i) = "Type"
+showExp ns (Hole p) = "?" ++ p
 showExp ns (Pi Dummy (Abs (Just d) r)) = parens (showExp ns d) ++ " -> " ++ showExp (Dummy:ns) r
 showExp ns (Pi n (Abs (Just d) r)) = "forall (" ++ show n ++ ": " ++ showExp ns d ++ "), " ++ showExp (n:ns) r
 showExp ns (Pi n (Abs Nothing r)) = "forall " ++ show n ++ ", " ++ showExp (n:ns) r
@@ -65,6 +65,7 @@ data Abstraction e
 
 data ValVar
     = VVar Int
+    | Unknown Name
     | VFree Name
     deriving(Eq)
 
@@ -112,7 +113,8 @@ showNames us ns (VPi abs) =
         else parens t ++ " -> " ++ x
 showNames us ns (VApp (VVar i) vs) = (if length ns <= i then show i else show (ns !! i)) ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VApp (VFree i) vs) = i ++ concatMap ((' ':) . parens . showNames us ns) vs
-showNames us ns (VSet i) = "Type." ++ show i
+showNames us ns (VApp (Unknown n) vs) = "?" ++ n ++ concatMap ((' ':) . parens . showNames us ns) vs
+showNames us ns (VSet i) = "Type"
 
 showVal :: [Var] -> Val -> String
 showVal = showNames names
@@ -157,24 +159,27 @@ deltaInCtx n (CtxDelta m _ r:_) | n == m = Just r
 deltaInCtx n (_:xs) = deltaInCtx n xs
 deltaInCtx _ [] = Nothing
 
--- evaluation environments - should NOT include references to itself!
-type Env = [Maybe Val]
-type Res = RWST [Var] [Constraint] UniverseID (Except String)
+-- evaluation contexts - list of definitions to agressively unfold
+type EvalCtx = [Name]
+type Res = RWST ([Var], EvalCtx) ([Constraint],[(Name,[Var],Val)]) UniverseID (Except String)
 
 trace :: String -> Res a -> Res a
 trace s m = catchError m (\e -> throwError (e ++ "\n" ++ s))
 
-runRes :: UniverseID -> Res a -> Either String (a,UniverseID)
+runRes :: EvalCtx -> UniverseID -> Res a -> Either String (a,UniverseID)
 runRes = runResVars []
 
-runResVars :: [Var] -> UniverseID -> Res a -> Either String (a,UniverseID)
-runResVars v u r = fmap (\(a,b,_) -> (a,b)) (runExcept (runRWST r v u))
+runResVars :: [Var] -> EvalCtx -> UniverseID -> Res a -> Either String (a,UniverseID)
+runResVars v e u r = fmap (\(a,b,_) -> (a,b)) (runExcept (runRWST r (v,e) u))
 
 withVar :: Var -> Res a -> Res a
-withVar n = local (n:)
+withVar n = local (\(a,b) -> (n:a,b))
 
 getVars :: Res [Var]
-getVars = ask
+getVars = fmap fst ask
+
+getEvalCtx :: Res EvalCtx
+getEvalCtx = fmap snd ask
 
 freshUniverse :: Res UniverseID
 freshUniverse = do
@@ -183,10 +188,12 @@ freshUniverse = do
     pure u
 
 constrain :: Constraint -> Res ()
-constrain c = tell [c]
+constrain c = tell ([c],[])
 
-modifEnv :: (Int -> Int) -> Env -> Env
-modifEnv f = fmap (fmap (modifFree f 0))
+foundHole :: Name -> Val -> Res ()
+foundHole n v = do
+    vs <- getVars
+    tell ([],[(n,vs,v)])
 
 modifAbs :: (Int -> Int) -> Int -> Abstraction Val -> Abstraction Val
 modifAbs f n (Abs d r) = Abs (fmap (modifFree f n) d) (modifFree f (n+1) r)
@@ -231,18 +238,29 @@ eval g (App f x) = do
     x' <- eval g x
     evalApp g f' x'
 eval g (Lam n abs) = VLam <$> evalAbs g abs
+eval g (Hole p) = do
+    pure (VApp (Unknown p) [])
 
 evalApp :: Ctx -> Val -> Val -> Res Val
+evalApp g (VApp (VFree n) vs) v = do
+    us <- getEvalCtx
+    if n `elem` us then do
+        v' <- reduce g (VApp (VFree n) (vs ++ [v]))
+        case v' of
+            Just v -> pure v
+            Nothing -> pure (VApp (VFree n) (vs ++ [v]))
+    else pure (VApp (VFree n) (vs ++ [v]))
 evalApp g (VApp n vs) v = pure (VApp n (vs ++ [v]))
 evalApp g f@(VLam (Abs _ x)) v = fmap (modifFree (\x->x-1) 0) (substVal g 0 (modifFree (+1) 0 v) x)
 evalApp g f@(VPi (Abs _ x)) v = fmap (modifFree (\x->x-1) 0) (substVal g 0 (modifFree (+1) 0 v) x)
 evalApp _ f x = error ("CRITICAL ERROR (this should not occur): non-function application of " ++ show f ++ " to " ++ show x)
 
 ehnf :: Ctx -> Val -> Res Val
-ehnf g v@(VApp (VFree n) xs) = case deltaInCtx n g of
-    Just d -> foldM (evalApp g) d xs >>= ehnf g
-    _ -> pure v
-ehnf _ v = pure v
+ehnf g v = do
+    v' <- reduce g v
+    case v' of
+        Just v -> ehnf g v
+        Nothing -> pure v
 
 type Subst = [(Int,Val)]
 
@@ -302,15 +320,20 @@ reduce g v = do
         Just r -> pure (Just r)
 
 fit :: Ctx -> Val -> Val -> Res ()
-fit g v0@(VPi ab) v1@(VPi bb) = trace "inside pi-abstraction" $ fitAbs g ab bb
-fit g v0@(VLam ab) v1@(VLam bb) = trace "inside lam-abstraction" $ fitAbs g ab bb
-fit g (VSet i) (VSet j) = tell [j :>=: i]
+fit g (VApp (Unknown _) _) _ = pure ()
+fit g v0@(VPi ab) v1@(VPi bb) = do
+    vs <- getVars
+    trace ("while fitting \"" ++ showVal vs v0 ++ "\" to \"" ++ showVal vs v1 ++ "\"") $ fitAbs g ab bb
+fit g v0@(VLam ab) v1@(VLam bb) = do
+    vs <- getVars
+    trace ("while fitting \"" ++ showVal vs v0 ++ "\" to \"" ++ showVal vs v1 ++ "\"") $ fitAbs g ab bb
+fit g (VSet i) (VSet j) = constrain (j :>=: i)
 fit g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b = do
     vs <- getVars
-    trace ("while fitting " ++ showVal vs v0 ++ " and " ++ showVal vs v1) $ mapM_ (uncurry (fit g)) (zip as bs)
+    trace ("while fitting \"" ++ showVal vs v0 ++ "\" to \"" ++ showVal vs v1 ++ "\"") $ mapM_ (uncurry (fit g)) (zip as bs)
 fit g a b = do
     vs <- getVars
-    trace ("while fitting " ++ showVal vs a ++ " and " ++ showVal vs b) $ do
+    trace ("while fitting \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\"") $ do
         a' <- reduce g a
         b' <- reduce g b
         case (a', b') of
@@ -334,7 +357,7 @@ markFree n x (Ann e t) = Ann (markFree n x e) (markFree n x t)
 markFree _ _ (Set i) = Set i
 markFree _ _ (Free n) = Free n
 markFree _ _ (Var i t) = Var i t
-markFree _ _ Hole = Hole
+markFree _ _ (Hole p) = Hole p
 
 markFreeAbs :: Int -> Val -> Abstraction Exp -> Abstraction Exp
 markFreeAbs n x (Abs d r) = Abs (fmap (markFree n x) d) (markFree (n+1) (modifFree (+1) 0 x) r)
@@ -342,7 +365,7 @@ markFreeAbs n x (Abs d r) = Abs (fmap (markFree n x) d) (markFree (n+1) (modifFr
 infer :: Ctx -> Exp -> Res Val
 infer g (Set i) = do
     j <- freshUniverse
-    tell [j :>: i]
+    constrain (j :>: i)
     pure (VSet j)
 infer g (Var i (Just t)) = pure t
 infer g (Free n) = case typeInCtx n g of
@@ -367,7 +390,7 @@ infer g (Pi n (Abs (Just d) r)) = do
     check g d (VSet i)
     dt <- eval g d
     withVar n $ check g (markFree 0 (modifFree (+1) 0 dt) r) (VSet j)
-    tell [k :>=: i, k :>=: j]
+    constrain (k :>=: i) >> constrain (k :>=: j)
     pure (VSet k)
 infer g (App f x) = do
     s <- infer g f >>= ehnf g
@@ -393,23 +416,26 @@ check g (Lam n (Abs t x)) (VPi (Abs (Just d) r)) = do
             fit g t d
         _ -> pure ()
     withVar n $ check g (markFree 0 (modifFree (+1) 0 d) x) r
-check g Hole t = do
-    vs <- getVars
-    throwError ("Found hole of type \"" ++ showVal vs t ++ "\".")
+check g (Hole p) t = foundHole p t
 check g x t = do
     xt <- infer g x
     fit g xt t
 
-inferWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Res (Val,OrderingGraph)
+inferWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Res (Either [(Name,[Var],Val)] (Val,OrderingGraph))
 inferWithOrderCheck g gr e = do
-    (v,c) <- listen (infer g e)
+    (v,(c,h)) <- listen (infer g e)
     gr <- appConstraints gr c
-    pure (v,gr)
+    case h of
+        [] -> pure (Right (v,gr))
+        _ -> pure (Left h)
 
-checkWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Val -> Res OrderingGraph
+checkWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Val -> Res (Either [(Name,[Var],Val)] OrderingGraph)
 checkWithOrderCheck g gr e t = do
-    (_,c) <- listen (check g e t)
-    appConstraints gr c
+    (_,(c,h)) <- listen (check g e t)
+    gr <- appConstraints gr c
+    case h of
+        [] -> pure (Right gr)
+        _ -> pure (Left h)
 
 showPar :: Show x => x -> String
 showPar x | ' ' `elem` show x = "(" ++ show x ++ ")"

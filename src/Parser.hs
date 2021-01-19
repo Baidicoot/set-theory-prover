@@ -179,39 +179,42 @@ indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
 indexOf _ a = Nothing
 
-elab :: UniverseID -> [Var] -> AST -> Cmd (Exp,UniverseID)
-elab u ns (ASTVar v) = case indexOf ns (User v) of
-    Just i -> pure (Var i Nothing,u)
-    Nothing -> pure (Free v,u)
-elab u ns (ASTAnn a b) = do
-    (a,u) <- elab u ns a
-    (b,u) <- elab u ns b
-    pure (Ann a b,u)
-elab u ns ASTSet = pure (Set u,u+1)
-elab u ns ASTHole = pure (Hole,u)
-elab u ns (ASTForall n a b) = do
-    (a,u) <- case a of
+elab :: UniverseID -> [Name] -> [Var] -> AST -> Cmd (Exp,UniverseID,[Name])
+elab u ps ns (ASTVar v) = case indexOf ns (User v) of
+    Just i -> pure (Var i Nothing,u,ps)
+    Nothing -> pure (Free v,u,ps)
+elab u ps ns (ASTAnn a b) = do
+    (a,u,ps) <- elab u ps ns a
+    (b,u,ps) <- elab u ps ns b
+    pure (Ann a b,u,ps)
+elab u ps ns ASTSet = pure (Set u,u+1,ps)
+elab u (p:ps) ns ASTHole = pure (Hole p,u,ps)
+elab u ps ns (ASTForall n a b) = do
+    (a,u,ps) <- case a of
         Just a -> do
-            (t,u) <- elab u ns a
-            pure (Just t,u)
-        Nothing -> pure (Nothing,u)
-    (b,u) <- elab u (n:ns) b
-    pure (Pi n (Abs a b),u)
-elab u ns (ASTLam n t x) = do
-    (t,u) <- case t of
+            (t,u,ps) <- elab u ps ns a
+            pure (Just t,u,ps)
+        Nothing -> pure (Nothing,u,ps)
+    (b,u,ps) <- elab u ps (n:ns) b
+    pure (Pi n (Abs a b),u,ps)
+elab u ps ns (ASTLam n t x) = do
+    (t,u,ps) <- case t of
         Just t -> do
-            (t,u) <- elab u ns t
-            pure (Just t,u)
-        Nothing -> pure (Nothing,u)
-    (x,u) <- elab u (n:ns) x
-    pure (Lam n (Abs t x),u)
-elab u ns (ASTApp f x) = do
-    (f,u) <- elab u ns f
-    (x,u) <- elab u ns x
-    pure (App f x,u)
+            (t,u,ps) <- elab u ps ns t
+            pure (Just t,u,ps)
+        Nothing -> pure (Nothing,u,ps)
+    (x,u,ps) <- elab u ps (n:ns) x
+    pure (Lam n (Abs t x),u,ps)
+elab u ps ns (ASTApp f x) = do
+    (f,u,ps) <- elab u ps ns f
+    (x,u,ps) <- elab u ps ns x
+    pure (App f x,u,ps)
+
+holes :: [String]
+holes = [1..] >>= flip replicateM ['A'..'Z']
 
 parse :: UniverseID -> String -> Cmd (Exp,UniverseID)
-parse u = elab u [] <=< parseParExp . fst . tokenize
+parse u = fmap (\(a,b,_)->(a,b)) . elab u holes [] <=< parseParExp . fst . tokenize
 
 parseParRedex :: [Var] -> [ParExp] -> Cmd Exp
 parseParRedex ns [Tok n] = case indexOf ns (User n) of
@@ -220,44 +223,53 @@ parseParRedex ns [Tok n] = case indexOf ns (User n) of
 parseParRedex ns (Tok n:es) = foldl App (Free n) <$> mapM (parseParRedex ns . ext) es
 parseParRedex _ xs = throwError ("Could not parse reducible expression \"" ++ unwords (fmap show xs) ++ "\"")
 
-elabRedexArgs :: UniverseID -> [Var] -> [(Var,Maybe AST)] -> Cmd ([(Name,Exp)], UniverseID)
-elabRedexArgs u ns ((User n,Just t):xs) = do
-    (t,u) <- elab u ns t
-    fmap (\(xs,u) -> (xs ++ [(n,t)],u)) (elabRedexArgs u (User n:ns) xs)
-elabRedexArgs u _ [] = pure ([],u)
-elabRedexArgs _ _ xs = throwError ("Could not parse redex arguments \""
+elabRedexArgs :: UniverseID -> [Name] -> [Var] -> [(Var,Maybe AST)] -> Cmd ([(Name,Exp)], UniverseID, [Name])
+elabRedexArgs u ps ns ((User n,Just t):xs) = do
+    (t,u,ps) <- elab u ps ns t
+    fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabRedexArgs u ps (User n:ns) xs)
+elabRedexArgs u ps _ [] = pure ([],u,ps)
+elabRedexArgs _ _ _ xs = throwError ("Could not parse redex arguments \""
     ++ unwords (fmap (show . fst) xs) ++ "\"")
 
-parseRedex :: UniverseID -> [ParExp] -> [ParExp] -> [ParExp] -> Cmd (([(Name,Exp)], Exp, Exp), UniverseID)
-parseRedex u as rs es = do
-    (args,u) <- parseArgs as >>= elabRedexArgs u []
+parseRedex :: UniverseID -> [Name] -> [ParExp] -> [ParExp] -> [ParExp] -> Cmd (([(Name,Exp)], Exp, Exp), UniverseID, [Name])
+parseRedex u ps as rs es = do
+    (args,u,ps) <- parseArgs as >>= elabRedexArgs u ps []
     r <- parseParRedex (fmap (User . fst) args) rs
-    (e,u) <- parseParExp es >>= elab u (fmap (User . fst) args)
-    pure ((args, r, e),u)
+    (e,u,ps) <- parseParExp es >>= elab u ps (fmap (User . fst) args)
+    pure ((args, r, e),u,ps)
 
 parseCommand :: UniverseID -> [ParExp] -> Cmd (Command,UniverseID)
 parseCommand u xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
-            (x,u) <- parseParExp ts >>= elab u []
+            (x,u,_) <- parseParExp ts >>= elab u holes []
             pure (Axiom n x,u)
         (Tok "Definition":Tok n:Tok ":=":ts) -> do
-            (x,u) <- parseParExp ts >>= elab u []
+            (x,u,_) <- parseParExp ts >>= elab u holes []
             pure (Define n x,u)
         (Tok "Check":Tok "Constraint":xs) -> fmap (\a -> (CheckConstraints a,u)) (parseConstraints xs)
-        (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= elab u [])
+        (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) . elab u holes [])
+        (Tok "Unfolding":ns) -> do
+            ns <- parseIdents ns
+            pure (Unfolding ns,u)
         (Tok "Compute":bs:Tok "with":as) -> do
-            (a,u) <- parseParExp as >>= elab u []
-            (b,u) <- parseParExp (ext bs) >>= elab u []
+            (a,u,h) <- parseParExp as >>= elab u holes []
+            (b,u,_) <- parseParExp (ext bs) >>= elab u h []
             pure (Match a b,u)
-        (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= elab u [])
+        (Tok "Compute":Tok "ehnf":ts) ->
+            fmap (\(a,b) -> (Ehnf a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [])
+        (Tok "Compute":Tok "unfold":Parens ns:ts) -> do
+            ns <- parseIdents ns
+            (t,u,_) <- parseParExp ts >>= elab u holes []
+            pure (EvalUnfold ns t,u)
+        (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
         (Tok "Reduction":Parens is:Tok ":=":os) -> do
-            ((_,is,os),u) <- parseRedex u [] is os
+            ((_,is,os),u,_) <- parseRedex u holes [] is os
             pure (Redex [] [] is os,u)
         (Tok "Reduction":Parens args:Parens is:Tok ":=":os) -> do
-            ((args,is,os),u) <- parseRedex u args is os
+            ((args,is,os),u,_) <- parseRedex u holes args is os
             pure (Redex (fmap (User . fst) args) (fmap snd args) is os,u)
         xs -> throwError ("Unrecognised command \"" ++ unwords (fmap show xs) ++ "\".")
 
@@ -280,14 +292,14 @@ parseCommands u (x:xs) = do
 parseCommands u [] = pure ([],u)
 
 interpret :: String -> CommandState -> Cmd CommandState
-interpret s (ctx,ord,u) = do
+interpret s (ctx,ord,u,ns) = do
     let (toks,r) = tokenize s
     unless (r == "") (throwError
         ("Parsed \""
         ++ (let s = show toks in if length s > 75 then "..." ++ drop (length s - 75) s else s)
         ++ "\" but did not consume entire sequence."))
     (cmds,u) <- parseCommands u (wordsWhen (==Tok ".") toks)
-    i (ctx,ord,u) cmds
+    i (ctx,ord,u,ns) cmds
         where
             i st (c:cmds) = do
                 st' <- docmd c st
