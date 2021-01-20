@@ -3,3 +3,4 @@
 doc/*
 !doc/ind.tex
 !doc/ind.pdf
+!doc/ind.bib

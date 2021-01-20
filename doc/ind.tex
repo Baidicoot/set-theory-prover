@@ -1,4 +1,5 @@
 \documentclass{article}
+
 \author{Aidan Ewart}
 \title{A Recipie for Induction}
 
@@ -8,6 +9,14 @@
 \usepackage{mathpartir}
 \usepackage{listings}
 \usepackage{xcolor}
+
+\usepackage[
+backend=biber,
+style=alphabetic,
+sorting=ynt
+]{biblatex}
+
+\addbibresource{ind.bib}
 
 \addtolength{\oddsidemargin}{-.875in}
 \addtolength{\evensidemargin}{-.875in}
@@ -40,7 +49,7 @@ basicstyle=\ttfamily
 language=att
 }
 
-\newcommand{\set}[1]{\mathcal{U}_#1}
+\newcommand{\set}{\mathcal{U}}
 \newcommand{\W}{\mathcal{W}}
 \newcommand{\V}{\mathcal{V}}
 \newcommand{\nat}{\mathbb{N}}
@@ -64,10 +73,10 @@ language=att
 In this document I present some observations and results gained while trying to implement induction in a \emph{minimal} type theory.
 
 \section{A (minimal) Type Theory}
-In this section I present the syntax, big-step semantics, and typing rules of a minimal type theory ATT.
+In this section I present the syntax, big-step semantics, and typing rules of a minimal type theory ATT, which I will use as a basis to extend with more axioms. 
 
 \begin{align*}
-    s \bnfdef& \set{n}, n \in \nat
+    s \bnfdef& \set_n, n \in \nat
     \\
     \bb{T} \bnfdef& \fun{v:\bb{T}}{\bb{T}} \alt \for{v : \bb{T}}{\bb{T}} \alt s \alt \bb{T T} \alt \bb{T} : \bb{T} \alt v
 \end{align*}
@@ -80,23 +89,23 @@ In this section I present the syntax, big-step semantics, and typing rules of a 
         {\Gamma \vdash v : \tau}
     \and \infer
         {i > j}
-        {\Gamma \vdash \set{j} : \set{i}}
+        {\Gamma \vdash \set_j : \set_i}
     \and \infer
-        {\Gamma \vdash \tau : \set{i}
+        {\Gamma \vdash \tau : \set_i
         \\ \Gamma \vdash \tau \evals \tau'
         \\ \Gamma \vdash e : \tau'}
         {\Gamma \vdash e : \tau : \tau'}
     \and \infer
-        {\Gamma \vdash \tau : \set{i}
+        {\Gamma \vdash \tau : \set_i
         \\ \Gamma \vdash \tau \evals \tau'
         \\ \Gamma, v : \tau' \vdash e : \upsilon}
         {\Gamma \vdash \fun{v: \tau}{e} : \upsilon}
     \and \infer
-        {\Gamma \vdash \tau : \set{i}
+        {\Gamma \vdash \tau : \set_i
         \\ \Gamma \vdash \tau \evals \tau'
-        \\ \Gamma, v : \tau' \vdash e : \set{j}
+        \\ \Gamma, v : \tau' \vdash e : \set_j
         \\ k \ge i, j}
-        {\Gamma \vdash \for{v: \tau}{e} : \set{k}}
+        {\Gamma \vdash \for{v: \tau}{e} : \set_k}
     \and \infer
         {\Gamma \vdash f : \for{v:\tau}{e}
         \\ \Gamma \vdash x : \upsilon
@@ -109,7 +118,7 @@ In this section I present the syntax, big-step semantics, and typing rules of a 
         {\Gamma \vdash e : \upsilon}
     \and \infer
         {i \geq j}
-        {\Gamma \vdash \set{j} \subseteq \set{j}}
+        {\Gamma \vdash \set_j \subseteq \set_j}
     \and \infer
         {\Gamma \vdash \tau_0 \subseteq \tau_1
         \\ \Gamma \vdash \upsilon_0 \subseteq \upsilon_1}
@@ -128,7 +137,7 @@ In this section I present the syntax, big-step semantics, and typing rules of a 
     \and \infer
         { }{\Gamma \vdash v \evals v}
     \and \infer
-        { }{\Gamma \vdash \set{i} \evals \set{i}}
+        { }{\Gamma \vdash \set_i \evals \set_i}
     \and \infer
         {\Gamma \vdash f \evals \fun{v}{e}
         \\ \Gamma \vdash x \evals x'
@@ -146,21 +155,23 @@ In this section I present the syntax, big-step semantics, and typing rules of a 
         {\Gamma \vdash \for{v : \tau}{e} \evals \for{v : \tau'}{e'}}
 \end{mathpar}
 
-\subsection{The Type $\W$ of Well-Formed Trees}
+\subsection{The Type $\W$ of Well-Founded Trees}
+
+This is the $\W$ axiom for well-founded trees as proposed by Martin-L{\"o}f\cite{MLTT:1}:
 
 \begin{mathpar}
     \infer
-        {\Gamma \vdash S : \set{u}
-        \\ \Gamma \vdash P : S \to \set{v}}
-        {\Gamma \vdash \W(S,P) : \set{w}}
+        {\Gamma \vdash S : \set
+        \\ \Gamma \vdash P : S \to \set}
+        {\Gamma \vdash \W(S,P) : \set}
     \and \infer
         {\Gamma \vdash s : S
         \\ \Gamma \vdash p : P s \to \W(S,P)}
         {\Gamma \vdash \sup(s,p) : \W(S,P)}
     \and \infer
         {\Gamma \vdash w : \W(S,P)
-        \\ \Gamma \vdash S : \set{u}
-        \\ \Gamma \vdash P : S \to \set{v}
+        \\ \Gamma \vdash S : \set
+        \\ \Gamma \vdash P : S \to \set
         \\ \Gamma \vdash C : \W(S,P) \to \set{x}
         \\ \Gamma \vdash \Upsilon : \for{s: S}{[\for{f:P s \to \W(S,P)}{\for{p: P s}{C (f p) \to C \sup(s,f)}}]} \to \for{x: \W(S,P)}{C x}}
         {\Gamma \vdash \rec(w,\Upsilon) : C w}
@@ -169,16 +180,18 @@ In this section I present the syntax, big-step semantics, and typing rules of a 
         {\Gamma \vdash \rec(\sup(x,u),\Upsilon) \evals e}
 \end{mathpar}
 
+Unfortunately, the $\W$-type fails to be useful in practice without a degree of extensionality\cite{OTT:1}, which may be undesirable. To this end, I formuate an alternative representation of $\W$-types appropriate for intensional type theories, such as ATT.
+
 \subsection{The Type $\V$ of Well-Formed Trees}
 
 \subsubsection{Naturals, Bounded Naturals, and Vectors}
 
-These axioms just contain the usual definitions of $\nat$ and $n$-bounded naturals $\nat_n$ with recursive eliminators. I also add $n$-ary tuple types, $T^n$ - this can be implemented using $\Sigma$-types and $\rec_\nat$, but I include it axiomatically for simplicity.
+These axioms just contain the usual definitions of $\nat$ and $n$-bounded naturals $\fin_n$ with recursive eliminators. I also add $n$-ary tuple types, $T^n$ - this can be implemented using $\Sigma$-types and $\rec_\nat$, but I include it axiomatically for simplicity.
 
 \begin{mathpar}
     \infer
         { }
-        {\Gamma \vdash \nat : \set{n}}
+        {\Gamma \vdash \nat : \set_n}
     \and \infer
         {\Gamma \vdash n : \nat}
         {\Gamma \vdash S n : \nat}
@@ -187,7 +200,7 @@ These axioms just contain the usual definitions of $\nat$ and $n$-bounded natura
         {\Gamma \vdash Z : \nat}
     \and \infer
         {\Gamma \vdash n : \nat}
-        {\Gamma \vdash \fin_n : \set{b}}
+        {\Gamma \vdash \fin_n : \set}
     \and \infer
         {\Gamma \vdash n : \nat
         \\ \Gamma \vdash m : \fin_n}
@@ -197,32 +210,32 @@ These axioms just contain the usual definitions of $\nat$ and $n$-bounded natura
         {\Gamma \vdash Z_n : \fin_{S n}}
     \and \infer
         {\Gamma \vdash n : \nat
-        \\ \Gamma \vdash T : \set{v}}
-        {\Gamma \vdash T^n : \set{v}}
+        \\ \Gamma \vdash T : \set}
+        {\Gamma \vdash T^n : \set}
     \and \infer
         {\Gamma \vdash n : \nat
-        \\ \Gamma \vdash T : \set{v}
+        \\ \Gamma \vdash T : \set
         \\ \Gamma \vdash t : T
         \\ \Gamma \vdash v : T^n}
         {\Gamma \vdash \tx{cons}(T,n,t,v) : T^{S n}}
     \and \infer
-        {\Gamma \vdash T : \set{v}}
+        {\Gamma \vdash T : \set}
         {\Gamma \vdash \tx{unit}(T) : T^Z}
     \and \infer
-        {\Gamma \vdash P : \nat \to \set{n}
+        {\Gamma \vdash P : \nat \to \set_n
         \\ \Gamma \vdash z : P Z
         \\ \Gamma \vdash s : \for{n : \nat}{P n \to P (S n)}
         \\ \Gamma \vdash n : \nat}
         {\Gamma \vdash \rec_\nat(P,z,s,n) : P n}
     \and \infer
-        {\Gamma \vdash P : \for{n: \nat}{\fin_n \to \set{b}}
+        {\Gamma \vdash P : \for{n: \nat}{\fin_n \to \set}
         \\ \Gamma \vdash z : \for{n: \nat}{P (S n) Z_n}
         \\ \Gamma \vdash s : \for{n: \nat}{\for{f : \fin_n}{P n f \to P (S n) (S_n f)}}
         \\ \Gamma \vdash n : \nat \\ \Gamma \vdash f : \fin_n}
         {\Gamma \vdash \rec_\fin(n,P,z,s,f) : P n f}
     \and \infer
-        {\Gamma \vdash T : \set{v}
-        \\ \Gamma \vdash P : \for{n: \nat}{T^n \to \set{v}}
+        {\Gamma \vdash T : \set
+        \\ \Gamma \vdash P : \for{n: \nat}{T^n \to \set}
         \\ \Gamma \vdash z : P Z (\tx{unit}(T))
         \\ \Gamma \vdash s : \for{n: \nat}{\for{v : T^n}{\for{t: T}{P n v \to P (S n) (\tx{cons}(T,S n,t,v)}}}
         \\ \Gamma \vdash n : \nat \\ \Gamma \vdash v : T^n}
@@ -251,19 +264,19 @@ I now define the usual $\Sigma$-types (existential quantifiers), which are neede
 
 \begin{mathpar}
     \infer
-        {\Gamma \vdash A : \set{s}
-        \\ \Gamma \vdash B : A \to \set{s}}
-        {\Gamma \vdash \Sigma(A,B) : \set{s}}
+        {\Gamma \vdash A : \set
+        \\ \Gamma \vdash B : A \to \set}
+        {\Gamma \vdash \Sigma(A,B) : \set}
     \and \infer
-        {\Gamma \vdash A : \set{s}
-        \\ \Gamma \vdash B : A \to \set{s}
+        {\Gamma \vdash A : \set
+        \\ \Gamma \vdash B : A \to \set
         \\ \Gamma \vdash a : A
         \\ \Gamma \vdash p : B a}
         {\Gamma \vdash \exists(A,B,a,p) : \Sigma(A,B)}
     \and \infer
-        {\Gamma \vdash A : \set{s}
-        \\ \Gamma \vdash B : A \to \set{s}
-        \\ \Gamma \vdash P : \Sigma(A,B) \to \set{s}
+        {\Gamma \vdash A : \set
+        \\ \Gamma \vdash B : A \to \set
+        \\ \Gamma \vdash P : \Sigma(A,B) \to \set
         \\ \Gamma \vdash f : \for{x: A}{\for{p: B a}{P \exists(A,B,x,p)}}
         \\ \Gamma \vdash p : \Sigma(A,B)}
         {\Gamma \vdash \elim_\Sigma(A,B,f,p) : P p}
@@ -274,13 +287,13 @@ I now define the usual $\Sigma$-types (existential quantifiers), which are neede
 
 \subsubsection{$\V$}
 
-$\V(n,R)$ is the type of well-founded trees with nodes labelled by $\fin{n}$ (i.e. it has $n$ constructors), where each node is the supremum of $R x$ subtrees, where $x: fin n$. This can be formulated axiomatically as follows:
+$\V(n,R)$ is the type of well-founded trees with nodes labelled by $\fin_n$ (i.e. it has $n$ constructors), where each node is the supremum of $R x$ subtrees, where $x: \fin_n$. This can be formulated axiomatically as follows:
 
 \begin{mathpar}
     \infer
         {\Gamma \vdash n : \nat
-        \\ \Gamma \vdash R : \fin{n} \to \nat}
-        {\Gamma \vdash V(n,R) : \set{v}}
+        \\ \Gamma \vdash R : \fin_n \to \nat}
+        {\Gamma \vdash V(n,R) : \set}
 \end{mathpar}
 
 $\tx{sup}(n,R,x,t)$ is the $x$th constructor for $\V(n,R)$, and is the supremum of the subtrees $t$:
@@ -288,20 +301,20 @@ $\tx{sup}(n,R,x,t)$ is the $x$th constructor for $\V(n,R)$, and is the supremum 
 \begin{mathpar}
     \infer
         {\Gamma \vdash n : \nat
-        \\ \Gamma \vdash R : \fin{n} \to \nat
-        \\ \Gamma \vdash c : \fin{n}
+        \\ \Gamma \vdash R : \fin_n \to \nat
+        \\ \Gamma \vdash c : \fin_n
         \\ \Gamma \vdash t : \V(n,R)^{R c}}
         {\Gamma \vdash \tx{sup}(n,R,c,t) : \V(n,R)}
 \end{mathpar}
 
-In order to do inductive proofs of some property $P: \V(n,R) \to \set{v}$ on some $\tx{sup}(n,R,c,t)$, we need to know that every subtree in $t$ also satisfies $P$, i.e. for every $x$ in $t$ there exists a proof of $Px$; using $\Sigma$ types, this requirement can be encoded as $\Sigma(\V(n,R),P)^{R c}$.
+In order to do inductive proofs of some property $P: \V(n,R) \to \set$ on some $\tx{sup}(n,R,c,t)$, we need to know that every subtree in $t$ also satisfies $P$, i.e. for every $x$ in $t$ there exists a proof of $Px$; using $\Sigma$ types, this requirement can be encoded as $\Sigma(\V(n,R),P)^{R c}$.
 
 Given the ability to `map' over an $n$-ary product, and extract the first element of a $\Sigma$-type,
 
 \begin{align*}
-    \tx{map} :=& \fun{A: \set{s}}{\fun{B: \set{s}}{\fun{f: A \to B}{\fun{n: \nat}{\fun{v: A^n}{
+    \tx{map} :=& \fun{A: \set}{\fun{B: \set}{\fun{f: A \to B}{\fun{n: \nat}{\fun{v: A^n}{
     \\ &\rec_{A^n}(\fun{m}\fun{x}{{B^m}},\tx{unit}(t),\fun{n}{\fun{x}{\fun{t}{\fun{v}{{cons(B,n,v,(f t))}}}}},v) : B^n}}}}}
-    \\ \tx{fst} :=& \fun{A: \set{s}}{\fun{B: A \to \set{s}}{\fun{p: \Sigma(A,B)}{\elim_\Sigma(A,B,\fun{a}{\fun{b}{a}},p)}}}
+    \\ \tx{fst} :=& \fun{A: \set}{\fun{B: A \to \set}{\fun{p: \Sigma(A,B)}{\elim_\Sigma(A,B,\fun{a}{\fun{b}{a}},p)}}}
 \end{align*}
 
 the recursor for $\V(n,R)$ becomes obvious, if verbose:
@@ -309,9 +322,9 @@ the recursor for $\V(n,R)$ becomes obvious, if verbose:
 \begin{mathpar}
     \infer
         {\Gamma \vdash n : \nat
-        \\ \Gamma \vdash R : \fin{n}
-        \\ \Gamma \vdash P : \V(n,R) \to \set{v}
-        \\ \Gamma \vdash f : \for{c: \fin{n}}{\for{s: \Sigma(\V(n,R),P)^{R c}}{P \tx{sup}(n,R,c,
+        \\ \Gamma \vdash R : \fin_n
+        \\ \Gamma \vdash P : \V(n,R) \to \set
+        \\ \Gamma \vdash f : \for{c: \fin_n}{\for{s: \Sigma(\V(n,R),P)^{R c}}{P \tx{sup}(n,R,c,
             \tx{map}(\Sigma(\V(n,R),P))(\V(n,R))(\tx{fst}(\V(n,R))P)(R c)s)}}
         \\ \Gamma \vdash t : \V(n,R)}
         {\Gamma \vdash \rec_\V(n,R,P,f,t) : P t}
@@ -319,5 +332,7 @@ the recursor for $\V(n,R)$ becomes obvious, if verbose:
         {\Gamma \vdash f c (\tx{map}(\V(n,R))(\Sigma(\V(n,R),P))(\fun{t: \V(n,R)}{\exists(t,\rec_\V(n,R,P,f,t))})(R c)t) \evals e}
         {\Gamma \vdash \rec_\V(n,R,P,f,\tx{sup}(n,R,c,t)) \evals e}
 \end{mathpar}
+
+\printbibliography
 
 \end{document}
