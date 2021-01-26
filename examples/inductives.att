@@ -1,0 +1,20 @@
+Inductive nat : Type :=
+| Z : nat
+| S : nat -> nat.
+
+Inductive fin : nat -> Type :=
+| finO : forall (n: nat), fin (S n)
+| finS : forall (n: nat), (fin n) -> fin (S n).
+
+Inductive vec (X: Type) : nat -> Type :=
+| vnil : vec X Z
+| vcons : forall (n: nat), X -> (vec X n) -> vec X (S n).
+
+Inductive lrvec (L R: Type) : nat -> nat -> Type :=
+| lrnil : lrvec L R Z Z
+| lcons : forall (a b: nat), L -> (lrvec L R a b) -> lrvec L R (S a) b
+| rcons : forall (a b: nat), R -> (lrvec L R a b) -> lrvec L R a (S b).
+
+Inductive False : Type.
+
+Inductive True : Type := I : True.

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Parser where
 import TT
 import Graph
@@ -238,6 +239,15 @@ parseRedex u ps as rs es = do
     (e,u,ps) <- parseParExp es >>= elab u ps (fmap (User . fst) args)
     pure ((args, r, e),u,ps)
 
+elabInductive :: UniverseID -> [Name] -> String -> [(Var,Maybe AST)] -> AST -> [(String,AST)] -> Cmd (Inductive, UniverseID)
+elabInductive u h s params ty cases = do
+    (args,u,h) <- elabRedexArgs u h [] params
+    (indTy,u,h) <- elab u h (fmap (User . fst) args) ty
+    (cases,u,_) <- foldM (\(cs,u,h) (n,t) -> do
+        (t,u,h) <- elab u h (fmap (User . fst) args) t
+        pure ((n,t):cs,u,h)) ([],u,h) cases
+    pure (Ind s (fmap (User . fst) args) (fmap snd args) indTy cases,u)
+
 parseCommand :: UniverseID -> [ParExp] -> Cmd (Command,UniverseID)
 parseCommand u xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
@@ -265,12 +275,30 @@ parseCommand u xs = case xs of
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
-        (Tok "Reduction":Parens is:Tok ":=":os) -> do
-            ((_,is,os),u,_) <- parseRedex u holes [] is os
-            pure (Redex [] [] is os,u)
-        (Tok "Reduction":Parens args:Parens is:Tok ":=":os) -> do
+        (Tok "Reduction":xs) -> do
+            let lhs = takeWhile (/= Tok ":=") xs
+            let os = drop 1 (dropWhile (/= Tok ":=") xs)
+            (args,is) <- case lhs of
+                    (_:_) -> pure (init lhs,ext (last lhs))
+                    _ -> throwError "Expected reducible expression, got nothing."
             ((args,is,os),u,_) <- parseRedex u holes args is os
             pure (Redex (fmap (User . fst) args) (fmap snd args) is os,u)
+        (Tok "Inductive":Tok s:xs) -> do
+            let params = takeWhile (/= Tok ":") xs
+            let xs' = drop 1 (dropWhile (/= Tok ":") xs)
+            let indty = takeWhile (/= Tok ":=") xs'
+            let indcs = if Tok ":=" `elem` xs' then
+                        filter (/= []) $ wordsWhen (==Tok "|") $ drop 1 (dropWhile (/= Tok ":=") xs')
+                    else
+                        []
+            params <- parseArgs params
+            indty <- parseParExp indty
+            indcs <- mapM (\case
+                (Tok c:Tok ":":ts) -> do
+                    t <- parseParExp ts
+                    pure (c,t)) indcs
+            (i,u) <- elabInductive u holes s params indty indcs
+            pure (MkInductive i,u)
         xs -> throwError ("Unrecognised command \"" ++ unwords (fmap show xs) ++ "\".")
 
 trim :: String -> String

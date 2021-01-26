@@ -11,6 +11,7 @@ type Name = String
 data Constraint
     = UniverseID :>: UniverseID
     | UniverseID :>=: UniverseID
+    deriving(Show)
 
 appConstraints :: OrderingGraph -> [Constraint] -> Res OrderingGraph
 appConstraints g (i :>: j:cs) = do
@@ -44,8 +45,14 @@ data Exp
     | Lam Var (Abstraction Exp)
     deriving(Show)
 
+parensLHS :: [Var] -> Exp -> String
+parensLHS ns an@(Ann e t) = parens (showExp ns an)
+parensLHS ns pi@(Pi _ _) = parens (showExp ns pi)
+parensLHS ns lm@(Lam _ _) = parens (showExp ns lm)
+parensLHS ns e = showExp ns e
+
 showExp :: [Var] -> Exp -> String
-showExp ns (Ann e t) = parens (showExp ns e) ++ " : " ++ showExp ns t
+showExp ns (Ann e t) = showExp ns e ++ " : " ++ showExp ns t
 showExp ns (Set i) = "Type"
 showExp ns (Hole p) = "?" ++ p
 showExp ns (Pi Dummy (Abs (Just d) r)) = parens (showExp ns d) ++ " -> " ++ showExp (Dummy:ns) r
@@ -55,7 +62,7 @@ showExp ns (Var i _) | i >= length ns = show i
 showExp ns (Var i (Just t)) = "(" ++ show (ns !! i) ++ ": " ++ showVal ns t ++ ")"
 showExp ns (Var i _) = show (ns !! i)
 showExp ns (Free n) = n
-showExp ns (App f x) = parens (showExp ns f) ++ " " ++ parens (showExp ns x)
+showExp ns (App f x) = parensLHS ns f ++ " " ++ parens (showExp ns x)
 showExp ns (Lam n (Abs Nothing r)) = "fun " ++ show n ++ " => " ++ showExp (n:ns) r
 showExp ns (Lam n (Abs (Just d) r)) = "fun (" ++ show n ++ ": " ++ showExp ns d ++ ") => " ++ showExp (n:ns) r
 
