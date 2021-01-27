@@ -24,15 +24,6 @@ instance Show Inductive where
         ++ showExp vs t ++ " :="
         ++ concatMap (\(n,xs) -> "\n| " ++ n ++ " : " ++ showExp vs xs) xs
 
-splitArgs :: Exp -> ([(Var,Exp)], Exp)
-splitArgs (Pi v (Abs (Just d) r)) = let (vs,e) = splitArgs r in ((v,d):vs,e)
-splitArgs x = ([],x)
-
-hasCons :: String -> Exp -> Maybe [Exp]
-hasCons s (App a b) = fmap (++[b]) (hasCons s a)
-hasCons s (Free t) | s == t = Just []
-hasCons _ _ = Nothing
-
 data Command
     = Axiom String Exp
     | Define String Exp
@@ -59,7 +50,7 @@ instance Show Command where
 data CommandOutput
     = DefAxiom String Val
     | Defined String Val Val
-    | DefinedInd Inductive
+    | DefInd Inductive
     | DefRedex [Var] Val Val
     | Checked Val
     | Evaluated Val
@@ -85,7 +76,7 @@ instance Show CommandOutput where
     show (PrintCtx c) = show c
     show (PrintGraph g) = showOrdering g
     show Success = "Ok.\n"
-    show (DefinedInd i) = "Defined " ++ show i ++ ".\n"
+    show (DefInd i) = "Defined " ++ show i ++ ".\n"
     show (Debug s) = "DEBUG: \"" ++ s ++ "\".\n"
 
 type CommandState = (Ctx,OrderingGraph,UniverseID,EvalCtx)
@@ -186,18 +177,63 @@ docmd' (Redex vrs vs i j) (ctx,ord,u,ev) = do
     (j,u) <- liftEither (runResVars vrs ev u (eval ctx j))
     tell [DefRedex vrs i j]
     pure (CtxRedex vrs i j:ctx,ord,u,ev)
-docmd' (MkInductive i) (ctx,ord,u,ev) = do
-    (ctx,ord,u,ev) <- makeType (ctx,ord,u,ev) i
-    (ctx,ord,u,ev) <- makeCases (ctx,ord,u,ev) i
-    (ctx,ord,u,ev) <- makeRecursor (ctx,ord,u,ev) i
+docmd' (MkInductive i) g = doInductive g i
+
+forallParams :: [Val] -> Val -> Val
+forallParams vs v = foldl (\t a -> VPi (Abs (Just a) t)) v vs
+
+getParams :: Val -> ([Val],Val)
+getParams (VPi (Abs (Just d) r)) = (\(a,b) -> (a++[d],b)) (getParams r)
+getParams x = ([],x)
+
+makeCase :: Name -> Int -> Int -> Name -> Val -> Cmd Val
+makeCase s nconst nvary c t = do
+    (subts,index) <- case getParams t of
+        (subts,VApp (VFree t) index) | s == t -> pure (subts,index)
+        _ -> throwError ("Constructor type of '" ++ c ++ "' must be '" ++ s ++ "'")
+    let term = VApp (VFree c) . fmap (\i -> VApp (VVar i) []) . reverse $
+            [0..length subts-1] ++ [length subts+1..nconst+length subts]
+    let conc = VApp (VVar (length subts)) (drop nconst index ++ [term])
+    let x = foldl (\t (i,a) -> case a of
+            VApp (VFree s') index | s == s' ->
+                let t' = modifFree (+1) 0 t
+                in VPi . Abs (Just a) . VPi $ Abs (Just (VApp (VVar (length subts - i))
+                    (drop nconst (fmap (modifFree (+1) 0) index) ++ [VApp (VVar 0) []]))) t'
+            _ -> VPi (Abs (Just a) t)) conc (zip [0..] subts)
+    pure x
+
+doInductive :: CommandState -> Inductive -> Cmd CommandState
+doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
+    (vs,(ctx,ord,u,ev)) <- chkAll (ctx,ord,u,ev) (reverse vs) []
+    (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
+    ord <- catchHoles r
+    (t,u) <- liftEither (runResVars vrs ev (u+1) (eval ctx (marksFree (zip [0..] vs) t)))
+    ctx <- pure (CtxAxiom s (forallParams vs t):ctx)
+
+    (cs,(ctx,ord,u,ev)) <- foldM (\(cs,(ctx,ord,u,ev)) (n,t) -> do
+        (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
+        ord <- catchHoles r
+        (t,u) <- liftEither (runResVars vrs ev (u+1) (eval ctx (marksFree (zip [0..] vs) t)))
+        ctx <- pure (CtxAxiom n (forallParams vs t):ctx)
+        pure ((n,t):cs,(ctx,ord,u,ev))) ([],(ctx,ord,u,ev)) cs
+    
+    let (varyingParams,_) = getParams t
+    let nconst = length vs
+    let nvary = length varyingParams
+    let prop = forallParams varyingParams (VPi
+            . Abs (Just $ VApp (VFree s) ((\i -> VApp (VVar i) []) <$> reverse [0..nconst+nvary-1])) $ VSet u)
+    u <- pure (u+1)
+    let conc = forallParams varyingParams $ VPi $ Abs (Just
+            . VApp (VFree s)
+            . fmap (\i -> VApp (VVar i) [])
+            . reverse $ [0..nvary - 1] ++ [nvary + 1..nvary + nconst])
+            . VApp (VVar (nvary+1))
+            . fmap (\i -> VApp (VVar i) [])
+            . reverse $ [0..nvary]
+    ind <- forallParams vs . VPi . Abs (Just prop) <$> foldM (\p (n,t) -> do
+        c <- makeCase s nconst nvary n t
+        pure (VPi (Abs (Just c) (modifFree (+1) 0 p)))) conc cs
+    ctx <- pure (CtxAxiom ("rec_" ++ s) ind:ctx)
+    tell [DefInd i]
+    tell [DefAxiom ("rec_" ++ s) ind]
     pure (ctx,ord,u,ev)
-
-makeType :: CommandState -> Inductive -> Cmd CommandState
-makeType g (Ind s _ vs t _) = (`docmd` g) . Axiom s $ foldr (\p c -> Pi Dummy (Abs (Just p) c)) t vs
-
-makeCases :: CommandState -> Inductive -> Cmd CommandState
-makeCases g (Ind _ _ vs _ cs) = foldM (flip docmd) g
-    (fmap (\(s,t) -> Axiom s $ foldr (\p c -> Pi Dummy (Abs (Just p) c)) t vs) cs)
-
-makeRecursor :: CommandState -> Inductive -> Cmd CommandState
-makeRecursor g _ = pure g
