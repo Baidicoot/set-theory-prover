@@ -5,6 +5,7 @@ import Data.List
 import Control.Monad.Except
 import Control.Monad.RWS
 import Data.Char
+import Data.Maybe
 
 type Name = String
 
@@ -132,13 +133,15 @@ instance Show Val where
 data CtxElem
     = CtxAxiom Name Val
     | CtxDelta Name Val Val
-    | CtxRedex [Var] Val Val
+    | CtxRedex [Name] Val Val
+    | CtxHoleTy Name Val
 
 ctxNames :: Ctx -> [Name]
 ctxNames = concatMap (\x -> case x of
     CtxAxiom n _ -> [n]
     CtxDelta n _ _ -> [n]
-    CtxRedex _ _ _ -> [])
+    CtxRedex _ _ _ -> []
+    CtxHoleTy _ _ -> [])
 
 getElem :: Name -> Ctx -> Maybe CtxElem
 getElem n (a@(CtxAxiom m _):_) | n == m = Just a
@@ -149,7 +152,8 @@ getElem _ [] = Nothing
 instance Show CtxElem where
     show (CtxAxiom n t) = "Axiom '" ++ n ++ "' : " ++ show t ++ "."
     show (CtxDelta n t d) = "Definition '" ++ n ++ "' : " ++ show t ++ "\n    := " ++ show d ++ "."
-    show (CtxRedex vs u v) = "Reduction (" ++ showVal vs u ++ ")\n    := " ++ showVal vs v ++ "."
+    show (CtxRedex _ u v) = "Reduction (" ++ showVal [] u ++ ")\n    := " ++ showVal [] v ++ "."
+    show (CtxHoleTy n t) = "Placeholder '" ++ n ++ "' : " ++ show t ++ "."
 
     showList xs s = intercalate "\n\n" (fmap show xs) ++ s
 
@@ -158,6 +162,7 @@ type Ctx = [CtxElem]
 typeInCtx :: Name -> Ctx -> Maybe Val
 typeInCtx n (CtxAxiom m t:_) | n == m = Just t
 typeInCtx n (CtxDelta m t _:_) | n == m = Just t
+typeInCtx n (CtxHoleTy m t:_) | n == m = Just t
 typeInCtx n (_:xs) = typeInCtx n xs
 typeInCtx _ [] = Nothing
 
@@ -269,13 +274,23 @@ ehnf g v = do
         Just v -> ehnf g v
         Nothing -> pure v
 
-type Subst = [(Int,Val)]
+type Subst = [(Name,Val)]
 
 applySubst :: Ctx -> Subst -> Val -> Res Val
-applySubst g ((i,i'):xs) v = do
-    v' <- substVal g i i' v
-    applySubst g xs v'
-applySubst _ [] v = pure v
+applySubst g sub (VApp (Unknown n) vs) | isJust (lookup n sub) = do
+    let (Just v) = lookup n sub
+    vs <- mapM (applySubst g sub) vs
+    foldM (evalApp g) v vs
+applySubst g sub (VApp n vs) = VApp n <$> mapM (applySubst g sub) vs
+applySubst g sub (VPi (Abs d r)) = do
+    d <- mapM (applySubst g sub) d
+    r <- applySubst g sub r
+    pure (VPi (Abs d r))
+applySubst g sub (VLam (Abs d r)) = do
+    d <- mapM (applySubst g sub) d
+    r <- applySubst g sub r
+    pure (VLam (Abs d r))
+applySubst _ _ x = pure x
 
 matchManyRedex :: Ctx -> [(Val,Val)] -> Res (Maybe Subst)
 matchManyRedex g ((a,b):xs) = do
@@ -288,12 +303,19 @@ matchManyRedex g ((a,b):xs) = do
         Nothing -> pure Nothing
 matchManyRedex _ [] = pure (Just [])
 
+occurs :: Name -> Val -> Bool
+occurs n (VApp m xs) = m == Unknown n || any (occurs n) xs
+occurs n (VLam (Abs d r)) = occurs n r || any (occurs n) d
+occurs n (VPi (Abs d r)) = occurs n r || any (occurs n) d
+occurs _ _ = False
+
 -- match val, redex
 matchRedex :: Ctx -> Val -> Val -> Res (Maybe Subst)
 matchRedex g (VSet _) (VSet _) = pure (Just [])
 matchRedex g (VPi (Abs _ a)) (VPi (Abs _ b)) = matchRedex g a b
 matchRedex g (VLam (Abs _ a)) (VLam (Abs _ b)) = matchRedex g a b
-matchRedex g v (VApp (VVar i) []) = pure (Just [(i,v)])
+matchRedex g v (VApp (Unknown n) []) | occurs n v = pure Nothing
+matchRedex g v (VApp (Unknown n) []) = pure (Just [(n,v)])
 matchRedex g (VApp n as) (VApp m bs) | n == m && length as == length bs = matchManyRedex g (zip as bs)
 matchRedex g a b = do
     a' <- reduce g a
@@ -374,10 +396,13 @@ infer g (Set i) = do
     j <- freshUniverse
     constrain (j :>: i)
     pure (VSet j)
+infer g (Hole n) = case typeInCtx n g of
+    Just t -> foundHole n t >> pure t
+    Nothing -> throwError ("Could not infer type of \"?" ++ n ++ "\".")
 infer g (Var i (Just t)) = pure t
 infer g (Free n) = case typeInCtx n g of
     Just t -> pure t
-    Nothing -> throwError ("Undefined identifier \"" ++ show n ++ "\"")
+    Nothing -> throwError ("Undefined identifier \"" ++ n ++ "\"")
 infer g (Ann x t) = do
     i <- freshUniverse
     check g t (VSet i)
@@ -428,19 +453,19 @@ check g x t = do
     xt <- infer g x
     fit g xt t
 
-inferWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Res (Either [(Name,[Var],Val)] (Val,OrderingGraph))
-inferWithOrderCheck g gr e = do
+inferWithOrderCheck :: [Name] -> Ctx -> OrderingGraph -> Exp -> Res (Either [(Name,[Var],Val)] (Val,OrderingGraph))
+inferWithOrderCheck ignoring g gr e = do
     (v,(c,h)) <- listen (infer g e)
     gr <- appConstraints gr c
-    case h of
+    case filter (\(n,_,_) -> n `notElem` ignoring) h of
         [] -> pure (Right (v,gr))
         _ -> pure (Left h)
 
-checkWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Val -> Res (Either [(Name,[Var],Val)] OrderingGraph)
-checkWithOrderCheck g gr e t = do
+checkWithOrderCheck :: [Name] -> Ctx -> OrderingGraph -> Exp -> Val -> Res (Either [(Name,[Var],Val)] OrderingGraph)
+checkWithOrderCheck ignoring g gr e t = do
     (_,(c,h)) <- listen (check g e t)
     gr <- appConstraints gr c
-    case h of
+    case filter (\(n,_,_) -> n `notElem` ignoring) h of
         [] -> pure (Right gr)
         _ -> pure (Left h)
 

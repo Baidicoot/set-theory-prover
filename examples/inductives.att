@@ -22,3 +22,8 @@ Inductive lrvec (L: Type) (R: Type) : nat -> nat -> Type :=
 Inductive False : Type.
 
 Inductive True : Type := I : True.
+
+Inductive ShallowTree (L R: Type) : nat -> Type :=
+| leftLeaf : forall (n: nat), L -> ShallowTree L R n
+| rightLeaf : forall (n: nat), R -> ShallowTree L R n
+| branch : forall (n: nat), (ShallowTree L R n) -> (ShallowTree L R n) -> ShallowTree L R (S n).

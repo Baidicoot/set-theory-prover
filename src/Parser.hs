@@ -5,6 +5,7 @@ import Graph
 import Command
 import Data.Char
 import Control.Monad.Except
+import Control.Monad.Writer
 
 data ParExp
     = Parens [ParExp]
@@ -180,98 +181,112 @@ indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
 indexOf _ a = Nothing
 
-elab :: UniverseID -> [Name] -> [Var] -> AST -> Cmd (Exp,UniverseID,[Name])
-elab u ps ns (ASTVar v) = case indexOf ns (User v) of
+elab :: UniverseID -> [Name] -> [Name] -> [Var] -> AST -> Cmd (Exp,UniverseID,[Name])
+elab u ps hs ns (ASTVar v) = case indexOf ns (User v) of
     Just i -> pure (Var i Nothing,u,ps)
-    Nothing -> pure (Free v,u,ps)
-elab u ps ns (ASTAnn a b) = do
-    (a,u,ps) <- elab u ps ns a
-    (b,u,ps) <- elab u ps ns b
+    Nothing -> pure (if v `elem` hs then Hole v else Free v,u,ps)
+elab u ps hs ns (ASTAnn a b) = do
+    (a,u,ps) <- elab u ps hs ns a
+    (b,u,ps) <- elab u ps hs ns b
     pure (Ann a b,u,ps)
-elab u ps ns ASTSet = pure (Set u,u+1,ps)
-elab u (p:ps) ns ASTHole = pure (Hole p,u,ps)
-elab u ps ns (ASTForall n a b) = do
+elab u ps hs ns ASTSet = pure (Set u,u+1,ps)
+elab u (p:ps) hs ns ASTHole = pure (Hole p,u,ps)
+elab u ps hs ns (ASTForall n a b) = do
     (a,u,ps) <- case a of
         Just a -> do
-            (t,u,ps) <- elab u ps ns a
+            (t,u,ps) <- elab u ps hs ns a
             pure (Just t,u,ps)
         Nothing -> pure (Nothing,u,ps)
-    (b,u,ps) <- elab u ps (n:ns) b
+    (b,u,ps) <- elab u ps hs (n:ns) b
     pure (Pi n (Abs a b),u,ps)
-elab u ps ns (ASTLam n t x) = do
+elab u ps hs ns (ASTLam n t x) = do
     (t,u,ps) <- case t of
         Just t -> do
-            (t,u,ps) <- elab u ps ns t
+            (t,u,ps) <- elab u ps hs ns t
             pure (Just t,u,ps)
         Nothing -> pure (Nothing,u,ps)
-    (x,u,ps) <- elab u ps (n:ns) x
+    (x,u,ps) <- elab u ps hs (n:ns) x
     pure (Lam n (Abs t x),u,ps)
-elab u ps ns (ASTApp f x) = do
-    (f,u,ps) <- elab u ps ns f
-    (x,u,ps) <- elab u ps ns x
+elab u ps hs ns (ASTApp f x) = do
+    (f,u,ps) <- elab u ps hs ns f
+    (x,u,ps) <- elab u ps hs ns x
     pure (App f x,u,ps)
 
 holes :: [String]
 holes = [1..] >>= flip replicateM ['A'..'Z']
 
 parse :: UniverseID -> String -> Cmd (Exp,UniverseID)
-parse u = fmap (\(a,b,_)->(a,b)) . elab u holes [] <=< parseParExp . fst . tokenize
+parse u = fmap (\(a,b,_)->(a,b)) . elab u holes [] [] <=< parseParExp . fst . tokenize
 
-parseParRedex :: [Var] -> [ParExp] -> Cmd Exp
-parseParRedex ns [Tok n] = case indexOf ns (User n) of
+parseParRedex :: [Name] -> [Var] -> [ParExp] -> Cmd Exp
+parseParRedex ns vs [Tok n] = case indexOf vs (User n) of
     Just i -> pure (Var i Nothing)
-    Nothing -> pure (Free n)
-parseParRedex ns (Tok n:es) = foldl App (Free n) <$> mapM (parseParRedex ns . ext) es
-parseParRedex _ xs = throwError ("Could not parse reducible expression \"" ++ unwords (fmap show xs) ++ "\"")
+    Nothing -> pure (if n `elem` ns then Hole n else Free n)
+parseParRedex ns vs (Tok n:es) = foldl App (Free n) <$> mapM (parseParRedex ns vs . ext) es
+parseParRedex _ _ xs = throwError ("Could not parse reducible expression \"" ++ unwords (fmap show xs) ++ "\"")
 
-elabRedexArgs :: UniverseID -> [Name] -> [Var] -> [(Var,Maybe AST)] -> Cmd ([(Name,Exp)], UniverseID, [Name])
-elabRedexArgs u ps ns ((User n,Just t):xs) = do
-    (t,u,ps) <- elab u ps ns t
-    fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabRedexArgs u ps (User n:ns) xs)
+elabRedexArgs :: UniverseID -> [Name] -> [Name] -> [(Name,AST)] -> Cmd ([(Name,Exp)], UniverseID, [Name])
+elabRedexArgs u ps ns ((n,t):xs) = do
+    (t,u,ps) <- elab u ps ns [] t
+    tell [Debug $ show ns ++ showExp [] t]
+    fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabRedexArgs u ps (n:ns) xs)
 elabRedexArgs u ps _ [] = pure ([],u,ps)
-elabRedexArgs _ _ _ xs = throwError ("Could not parse redex arguments \""
-    ++ unwords (fmap (show . fst) xs) ++ "\"")
+
+refineArgs :: [(Var,Maybe AST)] -> Cmd [(Name,AST)]
+refineArgs ((User n,Just t):xs) = do
+    xs' <- refineArgs xs
+    pure ((n,t):xs')
+refineArgs [] = pure []
+refineArgs ((User n,_):_) = throwError ("Redex/Inductive parameter \"" ++ n ++ "\" must have a type.")
+refineArgs ((_,_):_) = throwError "A redex/inductive parameter must be named."
 
 parseRedex :: UniverseID -> [Name] -> [ParExp] -> [ParExp] -> [ParExp] -> Cmd (([(Name,Exp)], Exp, Exp), UniverseID, [Name])
 parseRedex u ps as rs es = do
-    (args,u,ps) <- parseArgs as >>= elabRedexArgs u ps []
-    r <- parseParRedex (fmap (User . fst) args) rs
-    (e,u,ps) <- parseParExp es >>= elab u ps (fmap (User . fst) args)
+    args <- parseArgs as >>= refineArgs
+    (args,u,ps) <- elabRedexArgs u ps [] args
+    r <- parseParRedex (fmap fst args) [] rs
+    (e,u,ps) <- parseParExp es >>= elab u ps (fmap fst args) []
     pure ((args, r, e),u,ps)
 
-elabInductive :: UniverseID -> [Name] -> String -> [(Var,Maybe AST)] -> AST -> [(String,AST)] -> Cmd (Inductive, UniverseID)
+elabIndArgs :: UniverseID -> [Name] -> [Name] -> [(Name,AST)] -> Cmd ([(Name,Exp)], UniverseID, [Name])
+elabIndArgs u ps ns ((n,t):xs) = do
+    (t,u,ps) <- elab u ps [] (fmap User ns) t
+    fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabRedexArgs u ps (n:ns) xs)
+elabIndArgs u ps _ [] = pure ([],u,ps)
+
+elabInductive :: UniverseID -> [Name] -> String -> [(Name,AST)] -> AST -> [(String,AST)] -> Cmd (Inductive, UniverseID)
 elabInductive u h s params ty cases = do
     (args,u,h) <- elabRedexArgs u h [] params
-    (indTy,u,h) <- elab u h (fmap (User . fst) args) ty
+    (indTy,u,h) <- elab u h [] (fmap (User . fst) args) ty
     (cases,u,_) <- foldM (\(cs,u,h) (n,t) -> do
-        (t,u,h) <- elab u h (fmap (User . fst) args) t
+        (t,u,h) <- elab u h [] (fmap (User . fst) args) t
         pure ((n,t):cs,u,h)) ([],u,h) cases
     pure (Ind s (fmap (User . fst) args) (fmap snd args) indTy cases,u)
 
 parseCommand :: UniverseID -> [ParExp] -> Cmd (Command,UniverseID)
 parseCommand u xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
-            (x,u,_) <- parseParExp ts >>= elab u holes []
+            (x,u,_) <- parseParExp ts >>= elab u holes [] []
             pure (Axiom n x,u)
         (Tok "Definition":Tok n:Tok ":=":ts) -> do
-            (x,u,_) <- parseParExp ts >>= elab u holes []
+            (x,u,_) <- parseParExp ts >>= elab u holes [] []
             pure (Define n x,u)
         (Tok "Check":Tok "Constraint":xs) -> fmap (\a -> (CheckConstraints a,u)) (parseConstraints xs)
-        (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) . elab u holes [])
+        (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) . elab u holes [] [])
         (Tok "Unfolding":ns) -> do
             ns <- parseIdents ns
             pure (Unfolding ns,u)
         (Tok "Compute":bs:Tok "with":as) -> do
-            (a,u,h) <- parseParExp as >>= elab u holes []
-            (b,u,_) <- parseParExp (ext bs) >>= elab u h []
+            (a,u,h) <- parseParExp as >>= elab u holes [] []
+            (b,u,_) <- parseParExp (ext bs) >>= elab u h [] []
             pure (Match a b,u)
         (Tok "Compute":Tok "ehnf":ts) ->
-            fmap (\(a,b) -> (Ehnf a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [])
+            fmap (\(a,b) -> (Ehnf a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
         (Tok "Compute":Tok "unfold":Parens ns:ts) -> do
             ns <- parseIdents ns
-            (t,u,_) <- parseParExp ts >>= elab u holes []
+            (t,u,_) <- parseParExp ts >>= elab u holes [] []
             pure (EvalUnfold ns t,u)
-        (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [])
+        (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
@@ -282,7 +297,7 @@ parseCommand u xs = case xs of
                     (_:_) -> pure (init lhs,ext (last lhs))
                     _ -> throwError "Expected reducible expression, got nothing."
             ((args,is,os),u,_) <- parseRedex u holes args is os
-            pure (Redex (fmap (User . fst) args) (fmap snd args) is os,u)
+            pure (Redex args is os,u)
         (Tok "Inductive":Tok s:xs) -> do
             let params = takeWhile (/= Tok ":") xs
             let xs' = drop 1 (dropWhile (/= Tok ":") xs)
@@ -291,7 +306,7 @@ parseCommand u xs = case xs of
                         filter (/= []) $ wordsWhen (==Tok "|") $ drop 1 (dropWhile (/= Tok ":=") xs')
                     else
                         []
-            params <- parseArgs params
+            params <- parseArgs params >>= refineArgs
             indty <- parseParExp indty
             indcs <- mapM (\case
                 (Tok c:Tok ":":ts) -> do
