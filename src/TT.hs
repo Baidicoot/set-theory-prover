@@ -228,7 +228,7 @@ substVal :: Ctx -> Int -> Val -> Val -> Res Val
 substVal g n x e@(VApp (VVar i) xs) | i == n = do
     xs' <- mapM (substVal g n x) xs
     foldM (evalApp g) x xs'
-substVal g n x (VApp i xs) = VApp i <$> mapM (substVal g n x) xs
+substVal g n x (VApp i xs) = unfold g . VApp i =<< mapM (substVal g n x) xs
 substVal g n x (VLam abs) = VLam <$> substValAbs g n x abs
 substVal g n x (VPi abs) = VPi <$> substValAbs g n x abs
 substVal g n x (VSet i) = pure (VSet i)
@@ -241,7 +241,7 @@ evalAbs g (Abs d r) = do
 
 eval :: Ctx -> Exp -> Res Val
 eval g (Var i _) = pure (VApp (VVar i) [])
-eval g (Free n) = pure (VApp (VFree n) [])
+eval g (Free n) = unfold g (VApp (VFree n) [])
 eval g (Ann x t) = eval g x
 eval g (Set i) = pure (VSet i)
 eval g (Pi n abs) = VPi <$> evalAbs g abs
@@ -254,18 +254,21 @@ eval g (Hole p) = do
     pure (VApp (Unknown p) [])
 
 evalApp :: Ctx -> Val -> Val -> Res Val
-evalApp g (VApp (VFree n) vs) v = do
+evalApp g (VApp n vs) v = unfold g (VApp n (vs ++ [v]))
+evalApp g (VLam (Abs _ x)) v = modifFree (\x->x-1) 0 <$> substVal g 0 (modifFree (+1) 0 v) x
+evalApp g (VPi (Abs _ x)) v = modifFree (\x->x-1) 0 <$> substVal g 0 (modifFree (+1) 0 v) x
+evalApp _ f x = error ("CRITICAL ERROR (this should not occur): non-function application of " ++ show f ++ " to " ++ show x)
+
+unfold :: Ctx -> Val -> Res Val
+unfold g (VApp (VFree n) vs) = do
     us <- getEvalCtx
     if n `elem` us then do
-        v' <- reduce g (VApp (VFree n) (vs ++ [v]))
+        v' <- reduce g (VApp (VFree n) vs)
         case v' of
             Just v -> pure v
-            Nothing -> pure (VApp (VFree n) (vs ++ [v]))
-    else pure (VApp (VFree n) (vs ++ [v]))
-evalApp g (VApp n vs) v = pure (VApp n (vs ++ [v]))
-evalApp g f@(VLam (Abs _ x)) v = fmap (modifFree (\x->x-1) 0) (substVal g 0 (modifFree (+1) 0 v) x)
-evalApp g f@(VPi (Abs _ x)) v = fmap (modifFree (\x->x-1) 0) (substVal g 0 (modifFree (+1) 0 v) x)
-evalApp _ f x = error ("CRITICAL ERROR (this should not occur): non-function application of " ++ show f ++ " to " ++ show x)
+            Nothing -> pure (VApp (VFree n) vs)
+    else pure (VApp (VFree n) vs)
+unfold _ x = pure x
 
 ehnf :: Ctx -> Val -> Res Val
 ehnf g v = do
@@ -281,7 +284,7 @@ applySubst g sub (VApp (Unknown n) vs) | isJust (lookup n sub) = do
     let (Just v) = lookup n sub
     vs <- mapM (applySubst g sub) vs
     foldM (evalApp g) v vs
-applySubst g sub (VApp n vs) = VApp n <$> mapM (applySubst g sub) vs
+applySubst g sub (VApp n vs) = unfold g . VApp n =<< mapM (applySubst g sub) vs
 applySubst g sub (VPi (Abs d r)) = do
     d <- mapM (applySubst g sub) d
     r <- applySubst g sub r

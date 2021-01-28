@@ -47,4 +47,4 @@ Definition not_fin_z :=
         (fun _ _ _ => Z)
         Z) : (fin Z) -> absurd.
 
-Compute (S (S Z)) with rec_nat (fun _ => nat) Z (fun _ p => S (S p)) (S Z).
+Compute rec_nat (fun _ => nat) Z (fun _ p => S (S p)) (S (S Z)).
