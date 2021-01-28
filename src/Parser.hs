@@ -235,7 +235,6 @@ parseParRedex _ _ xs = throwError ("Could not parse reducible expression \"" ++ 
 elabRedexArgs :: UniverseID -> [Name] -> [Name] -> [(Name,AST)] -> Cmd ([(Name,Exp)], UniverseID, [Name])
 elabRedexArgs u ps ns ((n,t):xs) = do
     (t,u,ps) <- elab u ps ns [] t
-    tell [Debug $ show ns ++ showExp [] t]
     fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabRedexArgs u ps (n:ns) xs)
 elabRedexArgs u ps _ [] = pure ([],u,ps)
 

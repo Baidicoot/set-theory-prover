@@ -217,6 +217,40 @@ makeCase s nconst nvary c t = do
             _ -> VPi (Abs (Just a) t)) conc (zip [0..] subts)
     pure x
 
+getArgs :: Val -> [Val]
+getArgs (VApp _ xs) = xs
+getArgs _ = []
+
+substs :: Ctx -> Val -> [Val] -> Res Val
+substs g v = foldM (\v (i,v') -> substVal g i v' v) v . zip [0..]
+
+makeCaseRedex :: CommandState -> Name -> [Name] -> Name -> Int -> [Val] -> [Val] -> Cmd CommandState
+makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
+    let parArgs = fmap (\i -> VApp (Unknown ('P':show i)) []) [0..npar-1]
+    (consTypes,consNames) <- foldM (\(args,consNames) v -> do
+        (r,_) <- liftEither (runRes ev u (substs ctx v consNames))
+        let n = 'C':show (length args)
+        pure ((n,r):args,VApp (Unknown n) []:consNames))
+        ([],reverse parArgs) (reverse st)
+    typeArgs <- mapM (\v -> do
+        (r,_) <- liftEither (runRes ev u (substs ctx v consNames))
+        pure r) (drop npar ty)
+    let prop = VApp (Unknown "P") []
+    let cases = fmap (\n -> VApp (Unknown ("case_" ++ n)) []) cs
+    let lhsArgs = parArgs ++ [prop] ++ cases ++ typeArgs ++ [VApp (VFree c) (reverse consNames)]
+    let lhs = VApp (VFree ("rec_" ++ s)) lhsArgs
+    let rhsArgs = foldl (\xs (n,t) -> case t of
+            VApp (VFree s') ts | s == s' ->
+                let prfTyArgs = drop npar ts
+                    prfArgs = parArgs ++ [prop] ++ cases ++ prfTyArgs ++ [VApp (Unknown n) []]
+                    prf = VApp (VFree ("rec_" ++ s)) prfArgs
+                in VApp (Unknown n) []:prf:xs
+            _ -> VApp (Unknown n) []:xs) [] consTypes
+    let rhs = VApp (Unknown ("case_" ++ c)) rhsArgs
+    let nomicArgs = reverse $
+            fmap (('P':) . show) [0..npar-1] ++ ["P"] ++ fmap ("case_"++) cs ++ fmap (('C':) . show) [0..length st-1]
+    pure (CtxRedex nomicArgs lhs rhs:ctx,ord,u,ev)
+
 doInductive :: CommandState -> Inductive -> Cmd CommandState
 doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
     (vs,(ctx,ord,u,ev)) <- chkAll (ctx,ord,u,ev) (reverse vs) []
@@ -251,4 +285,9 @@ doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
     ctx <- pure (CtxAxiom ("rec_" ++ s) ind:ctx)
     tell [DefInd i]
     tell [DefAxiom ("rec_" ++ s) ind]
+
+    (ctx,ord,u,ev) <- foldM
+        (\g (n,v) -> makeCaseRedex g s (reverse $ fmap fst cs) n (length vrs) (fst (getParams v)) (getArgs (snd (getParams v))))
+        (ctx,ord,u,ev) cs
+
     pure (ctx,ord,u,ev)

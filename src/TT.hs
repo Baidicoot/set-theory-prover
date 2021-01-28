@@ -125,7 +125,7 @@ showNames us ns (VPi abs) =
     in  if boundVarUsed abs then
             "forall (" ++ v ++ " : " ++ t ++ "), " ++ x
         else parens t ++ " -> " ++ x
-showNames us ns (VApp (VVar i) vs) = (if length ns <= i then show i else show (ns !! i)) ++ concatMap ((' ':) . parens . showNames us ns) vs
+showNames us ns (VApp (VVar i) vs) = (if length ns <= i then '@':show i else show (ns !! i)) ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VApp (VFree i) vs) = i ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VApp (Unknown n) vs) = "?" ++ n ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VSet i) = "Type"
