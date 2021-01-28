@@ -14,6 +14,7 @@ data ParExp
 
 data AST
     = ASTAnn AST AST
+    | ASTNat Int
     | ASTSet
     | ASTHole
     | ASTForall Var (Maybe AST) AST
@@ -132,6 +133,7 @@ parseParExp (d:Tok "->":r) = do
     pure (ASTForall Dummy (Just d) r)
 parseParExp [Tok "Type"] = pure ASTSet
 parseParExp [Tok "_"] = pure ASTHole
+parseParExp [Tok n] | all isDigit n = pure (ASTNat (read n))
 parseParExp [Tok s] = pure (ASTVar s)
 parseParExp (e:es) = do
     args <- mapM (parseParExp . ext) es
@@ -179,9 +181,14 @@ parseConstraint [Tok i,Tok "=",Tok j] = do
 indexOf :: (Eq a, Show a) => [a] -> a -> Maybe Int
 indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
-indexOf _ a = Nothing
+indexOf _ _ = Nothing
+
+nTimes :: Int -> (a -> a) -> a -> a
+nTimes 0 _ x = x
+nTimes n f x = f (nTimes (n-1) f x)
 
 elab :: UniverseID -> [Name] -> [Name] -> [Var] -> AST -> Cmd (Exp,UniverseID,[Name])
+elab u ps _ _ (ASTNat n) = pure (nTimes n (App (Free "S")) (Free "Z"),u,ps)
 elab u ps hs ns (ASTVar v) = case indexOf ns (User v) of
     Just i -> pure (Var i Nothing,u,ps)
     Nothing -> pure (if v `elem` hs then Hole v else Free v,u,ps)

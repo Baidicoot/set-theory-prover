@@ -108,7 +108,13 @@ parens :: String -> String
 parens s | any isSpace s = "(" ++ s ++ ")"
 parens s = s
 
+showNat :: Val -> Maybe Int
+showNat (VApp (VFree "S") [x]) = fmap (+1) (showNat x)
+showNat (VApp (VFree "Z") []) = Just 0
+showNat _ = Nothing
+
 showNames :: [Name] -> [Var] -> Val -> String
+showNames _ _ n | isJust (showNat n) = let (Just i) = showNat n in show i
 showNames us ns (VLam abs) =
     let (v,t,x) = showNamesAbs us ns abs
     in case t of
