@@ -1,6 +1,5 @@
 /Det.hs
 /dist-newstyle
 doc/*
-!doc/ind.tex
-!doc/ind.pdf
-!doc/ind.bib
+!doc/att.tex
+!doc/att.pdf

@@ -1,0 +1,347 @@
+\documentclass{article}
+
+\author{Aidan Ewart}
+\title{Formalization of ATT}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{syntax}
+\usepackage{mathpartir}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{pxfonts}
+
+\addtolength{\oddsidemargin}{-.875in}
+\addtolength{\evensidemargin}{-.875in}
+\addtolength{\textwidth}{1.75in}
+
+\addtolength{\topmargin}{-.875in}
+\addtolength{\textheight}{1.75in}
+
+\definecolor{greyish}{HTML}{64766A}
+\definecolor{jade}{HTML}{5c2699}
+\definecolor{pink}{HTML}{c030b0}
+
+\lstdefinelanguage{att}
+{
+keywords=[1]{Definition,Axiom,Reduction,Inductive,Check,Compute,Eval,Universes,All,Constraint,Print,Transparent,Opaque},
+keywords=[2]{forall,fun,Type,unfolding,match,ehnf,esnf,in},
+literate={->}{{$\to$}}1 {=>}{{$\Rightarrow$}}1,
+sensitive=true,
+morecomment=[s]{\(*}{*\)},
+keywordstyle=[1]{\bfseries \itshape \color{pink}},
+keywordstyle=[2]{\bfseries \color{jade}},
+commentstyle={\itshape \color{greyish}},
+breaklines=true,
+basicstyle=\ttfamily
+}
+
+\lstset{
+language=att
+}
+
+\newcommand{\set}{\mathcal{U}}
+\newcommand{\W}{\mathcal{W}}
+\newcommand{\V}{\mathcal{V}}
+\newcommand{\nat}{\mathbb{N}}
+\newcommand{\fin}{\mathbb{F}}
+\newcommand{\elim}{\mathrm{elim}}
+\newcommand{\rec}{\mathrm{rec}}
+\newcommand{\tx}[1]{\mathrm{#1}}
+
+\newcommand{\fun}[2]{\lambda #1. #2}
+\newcommand{\for}[2]{\Pi_{#1}#2}
+
+\newcommand{\bnfdef}{\hspace{0.5cm} ::= \hspace{0.5cm}}
+\newcommand{\alt}{\hspace{0.25cm} | \hspace{0.25cm}}
+
+\newcommand{\bb}{\mathbf}
+\newcommand{\evals}{\rightsquigarrow^{nf}}
+
+\begin{document}
+\maketitle
+In this document I present the syntax, big-step semantics, and typing rules of ATT.
+
+\begin{align*}
+    s \bnfdef& \set_n, n \in \nat
+    \\
+    \bb{T} \bnfdef& \fun{v:\bb{T}}{\bb{T}} \alt \for{v : \bb{T}}{\bb{T}} \alt s \alt \bb{T T} \alt \bb{T} : \bb{T} \alt v
+\end{align*}
+
+\section{Core ATT}
+
+\subsection{Environments}
+
+An environment (denoted by $\Gamma$) in ATT is a set of rules containing definitions, reductions, and type annotations. I use the predicate $\Gamma \vdash \mathrm{Valid}$ to mean a well-formed environment, as created with the inference rules (plus the usual rules of weakening, contraction, and so on):
+
+\begin{mathpar}
+    \infer
+        { }
+        {\cdot \vdash \mathrm{Valid}}
+    \and \infer
+        {\Gamma \vdash e : T
+        \\ x \notin \Gamma
+        \\ \Gamma \vdash \mathrm{Valid}}
+        {\Gamma, x : T := e \vdash \mathrm{Valid}}
+    \and \infer
+        {\Gamma \vdash T
+        \\ a \notin \Gamma
+        \\ \Gamma \vdash \mathrm{Valid}}
+        {\Gamma, a : T \vdash \mathrm{Valid}}
+    \and \infer
+        {(a : S) \in \Gamma
+        \\ \Gamma, \overline{x : X} \vdash a e_0 \dots e_m : T
+        \\ \Gamma, \overline{x : X} \vdash e : T
+        \\ \Gamma \vdash \mathrm{Valid}
+        \\ \Gamma, \overline{x : X} \vdash \mathrm{Valid}}
+        {\Gamma, [\overline{x : X}] a e_0 \dots e_m \mapsto e \vdash \mathrm{Valid}}
+\end{mathpar}
+
+For following sections I leave the $\Gamma \vdash \mathrm{Valid}$ constraint implicit.
+
+\subsection{Well-Typed Terms}
+
+\subsubsection{Terms}
+
+\begin{mathpar}
+    \infer
+        {(v : \tau) \in \Gamma}
+        {\Gamma \vdash v : \tau}
+    \and \infer
+        {i > j}
+        {\Gamma \vdash \set_j : \set_i}
+    \and \infer
+        {\Gamma \vdash \tau : \set_i
+        \\ \Gamma \vdash \tau \evals \tau'
+        \\ \Gamma \vdash e : \tau'}
+        {\Gamma \vdash e : \tau : \tau'}
+    \and \infer
+        {\Gamma \vdash \tau : \set_i
+        \\ \Gamma \vdash \tau \evals \tau'
+        \\ \Gamma, v : \tau' \vdash e : \upsilon}
+        {\Gamma \vdash \fun{v: \tau}{e} : \upsilon}
+    \and \infer
+        {\Gamma \vdash \tau : \set_i
+        \\ \Gamma \vdash \tau \evals \tau'
+        \\ \Gamma, v : \tau' \vdash e : \set_j
+        \\ k \ge i, j}
+        {\Gamma \vdash \for{v: \tau}{e} : \set_k}
+    \and \infer
+        {\Gamma \vdash f : \for{v:\tau}{e}
+        \\ \Gamma \vdash x : \upsilon
+        \\ \Gamma \vdash x \evals x'
+        \\ \Gamma \vdash \upsilon \subseteq \tau}
+        {\Gamma \vdash f x : e[v \mapsto x']}
+    \and \infer
+        {\Gamma \vdash e : \tau
+        \\ \Gamma \vdash \tau \subseteq \upsilon}
+        {\Gamma \vdash e : \upsilon}
+\end{mathpar}
+
+\subsubsection{Conversions and Subtyping}
+
+$\delta$-conversion corresponds to the 'unfolding' of definitions in the environment:
+
+\begin{mathpar}
+    \infer
+        {(x : T := e) \in \Gamma}
+        {\Gamma \vdash x \triangleright_\delta e}
+\end{mathpar}
+
+$\rho$-conversion corresponds to the application of $\rho$-reduction rules in the environment:
+
+\begin{mathpar}
+    \and \infer
+        {([\overline{x : X}] a e_0 \dots e_m \mapsto e) \in \Gamma
+        \\ \Gamma \vdash \overline{t : X}}
+        {\Gamma \vdash (a t_0 \dots t_m)[\overline{x \mapsto t}] \triangleright_\rho e[\overline{x \mapsto t}]}
+\end{mathpar}
+
+And finally the $\alpha$, $\beta$, and $\eta$-conversion rules correspond to the normal $\alpha$, and $\beta$-reduction, and $\eta$-expansion rules of the $\lambda$-calculus:
+
+\begin{mathpar}
+    \and \infer
+        {\Gamma \vdash x \evals y}
+        {\Gamma \vdash x \triangleright_\beta y}
+    \and \infer
+        {\Gamma \vdash f : \for{x: D}R}
+        {\Gamma \vdash f \triangleright_\eta \fun{x: D} f x}
+\end{mathpar}
+
+The convertability relation $=_{\alpha \beta \delta \eta \rho}$ is the transitive, reflexive, closure of $=_\alpha \cup \triangleright_\beta \cup \triangleright_\delta \cup \triangleright_\eta \cup \triangleright_\rho$, and relates all convertable terms:
+
+\begin{mathpar}
+    \infer
+        {\Gamma \vdash x =_\alpha y}
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+    \and \infer
+        {\Gamma \vdash x \triangleright_\beta y}
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+    \and \infer
+        {\Gamma \vdash x \triangleright_\delta y}
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+    \and \infer
+        {\Gamma \vdash x \triangleright_\eta y}
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+    \and \infer
+        {\Gamma \vdash x \triangleright_\rho y}
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+    \and \infer
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash y =_{\alpha \beta \delta \eta \rho} x}
+    \and \infer
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y
+        \\ \Gamma \vdash y =_{\alpha \beta \delta \eta \rho} z}
+        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} z}
+\end{mathpar}
+
+If two terms are $\alpha \beta \delta \eta \rho$-convertable, then they are, for all intents and purposes, equivalent, and therefore subtypes of each other by reflexivity.
+
+\begin{mathpar}
+    \infer
+        {\Gamma \vdash x \triangleright_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash x \subseteq y}
+    \and \infer
+        {\Gamma \vdash x \triangleright_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash y \subseteq x}
+    \and \infer
+        {i \geq j}
+        {\Gamma \vdash \set_j \subseteq \set_j}
+    \and \infer
+        {\Gamma \vdash \tau_0 \subseteq \tau_1
+        \\ \Gamma \vdash \upsilon_0 \subseteq \upsilon_1}
+        {\Gamma \vdash \for{v: \tau_0}{\upsilon_0} \subseteq \for{u: \tau_1}{\upsilon_1}}
+    \and \infer
+        {\Gamma \vdash \tau_0 \subseteq \tau_1
+        \\ \Gamma \vdash \upsilon_0 \subseteq \upsilon_1}
+        {\Gamma \vdash \fun{v: \tau_0}{\upsilon_0} \subseteq \fun{u: \tau_1}{\upsilon_1}}
+    \and \infer
+        {\Gamma \vdash \tau_0 \subseteq \tau_1
+        \\ \Gamma \vdash \upsilon_0 \subseteq \upsilon_1}
+        {\Gamma \vdash \tau_0 \upsilon_0 \subseteq \tau_1 \upsilon_1}
+\end{mathpar}
+
+\subsubsection{Evaluation}
+
+\begin{mathpar}
+    \and \infer
+        { }{\Gamma \vdash v \evals v}
+    \and \infer
+        { }{\Gamma \vdash \set_i \evals \set_i}
+    \and \infer
+        {\Gamma \vdash f \evals \fun{v}{e}
+        \\ \Gamma \vdash x \evals x'
+        \\ \Gamma \vdash e[v \mapsto x'] \evals t}
+        {\Gamma \vdash f x \evals t}
+    \and \infer
+        {\Gamma \vdash e \evals e'}
+        {\Gamma \vdash e : \tau \evals e'}
+    \and \infer
+        {\Gamma \vdash e \evals e'}
+        {\Gamma \vdash \fun{v : \tau}{e} \evals \fun{v}{e'}}
+    \and \infer
+        {\Gamma \vdash e \evals e'
+        \\ \Gamma \vdash \tau \evals \tau'}
+        {\Gamma \vdash \for{v : \tau}{e} \evals \for{v : \tau'}{e'}}
+\end{mathpar}
+
+\section{The Vernacular Language}
+
+To interact with the ATT system, you use the \emph{vernacular} interface, a command-oriented 'programming language' supporting a number of operations.
+
+One can use the \texttt{Definition} command to add a $\delta$-expansion for a name to the environment:
+\begin{lstlisting}
+Definition id := fun (X: Type) (x: X) => x.
+\end{lstlisting}
+
+The \texttt{Axiom} command adds top-level parameters to the environment:
+\begin{lstlisting}
+Axiom false : forall (X: Type), x.
+\end{lstlisting}
+
+The \texttt{Reduction} command adds $\rho$-reductions to the environment (note that these are entirely unrestricted, and therefore break many metatheoretic properties when abused):
+\begin{lstlisting}
+Axiom Mu : forall (A: Type), (A -> A) -> A.
+Reduction (A: Type) (f: A -> A) (Mu A f) := f (Mu A f).
+\end{lstlisting}
+
+The \texttt{Inductive} command is essentially a packaging of \texttt{Axiom} and \texttt{Reduction} commands for strictly-positive inductive types:
+\begin{lstlisting}
+Inductive nat : Type :=
+| S : nat -> nat
+| Z : nat.
+\end{lstlisting}
+has the same effect as
+\begin{lstlisting}
+Axiom nat : Type.
+Axiom Z : nat.
+Axiom S : nat -> nat.
+
+Axiom rec_nat : forall (P: nat -> Type), (P Z) -> (forall (n: nat), (P n) -> P (S n)) -> forall (n: nat), P n.
+
+Reduction (P: nat -> Type) (z: P Z) (sn: forall (n: nat), (P n) -> P (S n))
+    (rec_nat P z sn Z) := z.
+
+Reduction (P: nat -> Type) (z: P Z) (sn: forall (n: nat), (P n) -> P (S n)) (n: nat)
+    (rec_nat P z sn (S n)) := sn n (rec_nat P z sn n).
+\end{lstlisting}
+Naturals in the source are elaborated to their inductive form; i.e. \texttt{3} would become \texttt{S (S (S Z))}.
+
+The \texttt{Print} command can be used to display the definition of multiple names in the environment:
+\begin{lstlisting}
+Print id false.
+Print All.
+\end{lstlisting}
+or to print the graph representing the (algebraic) universe heirarchy:
+\begin{lstlisting}
+Print Universes.
+\end{lstlisting}
+
+The \texttt{Check} command comes in two forms. One can either infer the type of an expression:
+\begin{lstlisting}
+Check rec_nat.
+\end{lstlisting}
+or check to see if adding arbitrary universe constraints would create a non-well-founded universe heirarchy:
+\begin{lstlisting}
+Check Constraints 1 = 2, 3 <= 2.
+\end{lstlisting}
+
+The \texttt{Transparent} and \texttt{Opaque} commands can be used to specify whether a name should be agressively $\delta$ and $\rho$-reduced, or not, respectively. Names are \texttt{Opaque} by default:
+\begin{lstlisting}
+Transparent rec_nat.
+
+Definition add := fun (x y: nat) => rec_nat (fun _ => nat) y (fun _ p => S p) x.
+
+Transparent add.
+Compute add 4 5.
+(* Results in 9 *)
+
+Opaque add.
+Compute add 4 5.
+(* Results in add 4 5. *)
+\end{lstlisting}
+
+The \texttt{Eval} and \texttt{Compute} commands can be used to perform computation with a given reduction strategy, or the default one:
+\begin{lstlisting}
+Compute add 4 5.
+(* Results in add 4 5. *)
+
+Eval (unfolding add) in add 4 5.
+Eval (match 9) in add 4 5.
+Eval ehnf in add 4 5.
+Eval esnf in add 4 5.
+Eval ehnf (unfolding add) esnf (match 9) in add 4 5.
+(* Results in 9 *)
+\end{lstlisting}
+
+The available reduction strategies are:
+\begin{itemize}
+    \item \texttt{unfolding ...} which acts as a local variant of \texttt{Transparent}
+    \item \texttt{match exp} which tries to match the term to \texttt{exp}, resulting in \texttt{exp}
+    \item \texttt{ehnf} (`Expanded Head Normal Form') agressively expands the topmost term of the expression
+    \item \texttt{esnf} (`Expanded Spine Normal Form') agressively expands the topmost term of the expression, recursing for the bodies of $\lambda$ and $\Pi$ abstractions.
+\end{itemize}
+
+These reduction strategies are applied in left-to-right order, except for \texttt{unfolding ...} strategies, which are applied throught execution.
+
+\end{document}

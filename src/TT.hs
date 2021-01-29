@@ -290,6 +290,10 @@ esnf g (VPi (Abs d r)) = do
     r' <- esnf g r
     d' <- traverse (ehnf g) d
     pure (VPi (Abs d' r'))
+esnf g (VLam (Abs d r)) = do
+    r' <- esnf g r
+    d' <- traverse (ehnf g) d
+    pure (VLam (Abs d' r'))
 esnf g v = do
     v' <- reduce g v
     case v' of
