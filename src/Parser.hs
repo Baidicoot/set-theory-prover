@@ -269,6 +269,18 @@ elabInductive u h s params ty cases = do
         pure ((n,t):cs,u,h)) ([],u,h) cases
     pure (Ind s (fmap (User . fst) args) (fmap snd args) indTy cases,u)
 
+parseRed :: UniverseID -> [ParExp] -> Cmd ([RedScheme],UniverseID)
+parseRed u (Tok "ehnf":xs) = fmap (\(s,u) -> (Ehnf:s,u)) (parseRed u xs)
+parseRed u (Tok "esnf":xs) = fmap (\(s,u) -> (Esnf:s,u)) (parseRed u xs)
+parseRed u (Parens (Tok "unfolding":ns):xs) = do
+    ns <- parseIdents ns
+    fmap (\(s,u) -> (DeltaWith ns:s,u)) (parseRed u xs)
+parseRed u (Parens (Tok "match":es):xs) = do
+    (e,u,_) <- parseParExp es >>= elab u holes [] []
+    fmap (\(s,u) -> (Match e:s,u)) (parseRed u xs)
+parseRed u [] = pure ([],u)
+parseRed _ xs = throwError ("Could not parse reduction stratedy \"" ++ show xs ++ "\"")
+
 parseCommand :: UniverseID -> [ParExp] -> Cmd (Command,UniverseID)
 parseCommand u xs = case xs of
         (Tok "Axiom":Tok n:Tok ":":ts) -> do
@@ -282,16 +294,12 @@ parseCommand u xs = case xs of
         (Tok "Unfolding":ns) -> do
             ns <- parseIdents ns
             pure (Unfolding ns,u)
-        (Tok "Compute":bs:Tok "with":as) -> do
-            (a,u,h) <- parseParExp as >>= elab u holes [] []
-            (b,u,_) <- parseParExp (ext bs) >>= elab u h [] []
-            pure (Eval [Match b] a,u)
-        (Tok "Compute":Tok "ehnf":ts) ->
-            fmap (\(a,b) -> (Eval [Ehnf] a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
-        (Tok "Compute":Tok "unfold":Parens ns:ts) -> do
-            ns <- parseIdents ns
+        (Tok "Eval":xs) -> do
+            let rs = takeWhile (/= Tok "in") xs
+            let ts = drop 1 (dropWhile (/= Tok "in") xs)
+            (r,u) <- parseRed u rs
             (t,u,_) <- parseParExp ts >>= elab u holes [] []
-            pure (Eval [DeltaWith ns] t,u)
+            pure (Eval r t,u)
         (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval [] a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)

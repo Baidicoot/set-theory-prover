@@ -4,7 +4,7 @@ Axiom S : nat -> nat.
 
 Axiom rec_nat : forall (P: nat -> Type), (P Z) -> (forall (n: nat), (P n) -> P (S n)) -> forall (n: nat), P n.
 
-(* `Reduction (args) (redex) := exp` defines a ρ-reduction rule for `redex` *)
+(* `Reduction args (redex) := exp` defines a ρ-reduction rule for `redex` *)
 Reduction (P: nat -> Type) (z: P Z) (sn: forall (n: nat), (P n) -> P (S n))
     (rec_nat P z sn Z) := z.
 
@@ -13,8 +13,8 @@ Reduction (P: nat -> Type) (z: P Z) (sn: forall (n: nat), (P n) -> P (S n)) (n: 
 
 Definition double := rec_nat (fun _ => nat) Z (fun _ n => S (S n)).
 
-(* `Compute O with I` attempts to fit I to O by performing δ- and ρ-reductions *)
-Compute (S (S (S (S Z)))) with double (S (S Z)).
+(* `Eval (match O) in I` attempts to fit O to I by performing δ- and ρ-reductions *)
+Eval (match S (S (S (S Z)))) in double (S (S Z)).
 (* Ok. *)
 
 Axiom fin : nat -> Type.
@@ -47,7 +47,7 @@ Definition zeroify := rec_fin
     (fun (n: nat) => finZ n)
     (fun (n: nat) (_ _: fin n) => finZ n).
 
-Compute (finZ (S Z)) with zeroify (S (S Z)) (finS (S Z) (finZ Z)).
+Eval (match finZ (S Z)) in zeroify (S (S Z)) (finS (S Z) (finZ Z)).
 (* Ok. *)
 
 Definition bool := fin (S (S Z)).
