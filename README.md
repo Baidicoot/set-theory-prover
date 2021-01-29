@@ -7,7 +7,7 @@ A Type Theory I threw together during lockdown. ATT has:
 - nothing in the way of type inference whatsoever! (except for `(fun var => exp) : forall (x: A), B`)
 - special syntax (and pretty printing) for naturals (i.e. `3` is elaborated to `S (S (S Z))`)
 
-# The Command Language
+## The Command Language
 ATT is interacted with using a (quite aesthetic, even if I say so myself) 'vernacular' command-oriented language a lá Coq - to the point of Coq syntax highlighting being entirely usable for ATT (however commands are *separated* - not terminated as in Coq - by a `.`). This language offers:
 - definitions (`Definition name := exp`)
 - axioms (`Axiom name : type`)
