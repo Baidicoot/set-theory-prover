@@ -276,11 +276,24 @@ unfold g (VApp (VFree n) vs) = do
     else pure (VApp (VFree n) vs)
 unfold _ x = pure x
 
+-- force reduction to expanded-head normal form
 ehnf :: Ctx -> Val -> Res Val
 ehnf g v = do
     v' <- reduce g v
     case v' of
         Just v -> ehnf g v
+        Nothing -> pure v
+
+-- force reduction to expanded-spine normal form
+esnf :: Ctx -> Val -> Res Val
+esnf g (VPi (Abs d r)) = do
+    r' <- esnf g r
+    d' <- traverse (ehnf g) d
+    pure (VPi (Abs d' r'))
+esnf g v = do
+    v' <- reduce g v
+    case v' of
+        Just v -> esnf g v
         Nothing -> pure v
 
 type Subst = [(Name,Val)]
@@ -365,6 +378,17 @@ fit g v0@(VPi ab) v1@(VPi bb) = do
 fit g v0@(VLam ab) v1@(VLam bb) = do
     vs <- getVars
     trace ("while fitting \"" ++ showVal vs v0 ++ "\" to \"" ++ showVal vs v1 ++ "\"") $ fitAbs g ab bb
+-- eta-expansion
+fit g v0@(VLam _) f = do
+    vs <- getVars
+    trace ("while eta-expanding \"" ++ showVal vs f) $ do
+        b <- evalApp g (modifFree (+1) 0 f) (VApp (VVar 0) [])
+        fit g v0 (VLam (Abs Nothing b))
+fit g f v1@(VLam _) = do
+    vs <- getVars
+    trace ("while eta-expanding \"" ++ showVal vs f) $ do
+        b <- evalApp g (modifFree (+1) 0 f) (VApp (VVar 0) [])
+        fit g (VLam (Abs Nothing b)) v1
 fit g (VSet i) (VSet j) = constrain (j :>=: i)
 fit g v0@(VApp a as) v1@(VApp b bs) | length as == length bs && a == b = do
     vs <- getVars

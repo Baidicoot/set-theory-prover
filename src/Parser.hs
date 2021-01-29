@@ -285,14 +285,14 @@ parseCommand u xs = case xs of
         (Tok "Compute":bs:Tok "with":as) -> do
             (a,u,h) <- parseParExp as >>= elab u holes [] []
             (b,u,_) <- parseParExp (ext bs) >>= elab u h [] []
-            pure (Match a b,u)
+            pure (Eval [Match b] a,u)
         (Tok "Compute":Tok "ehnf":ts) ->
-            fmap (\(a,b) -> (Ehnf a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
+            fmap (\(a,b) -> (Eval [Ehnf] a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
         (Tok "Compute":Tok "unfold":Parens ns:ts) -> do
             ns <- parseIdents ns
             (t,u,_) <- parseParExp ts >>= elab u holes [] []
-            pure (EvalUnfold ns t,u)
-        (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
+            pure (Eval [DeltaWith ns] t,u)
+        (Tok "Compute":ts) -> fmap (\(a,b) -> (Eval [] a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) .  elab u holes [] [])
         [Tok "Print",Tok "All"] -> pure (PrintAll,u)
         [Tok "Print",Tok "Universes"] -> pure (PrintUniverses,u)
         (Tok "Print":xs) -> fmap (\a -> (Print a,u)) (parseIdents xs)
