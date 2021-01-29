@@ -291,9 +291,12 @@ parseCommand u xs = case xs of
             pure (Define n x,u)
         (Tok "Check":Tok "Constraint":xs) -> fmap (\a -> (CheckConstraints a,u)) (parseConstraints xs)
         (Tok "Check":ts) -> fmap (\(a,b) -> (Check a,b)) (parseParExp ts >>= fmap (\(a,b,_) -> (a,b)) . elab u holes [] [])
-        (Tok "Unfolding":ns) -> do
+        (Tok "Transparent":ns) -> do
             ns <- parseIdents ns
-            pure (Unfolding ns,u)
+            pure (Transparent ns,u)
+        (Tok "Opaque":ns) -> do
+            ns <- parseIdents ns
+            pure (Opaque ns,u)
         (Tok "Eval":xs) -> do
             let rs = takeWhile (/= Tok "in") xs
             let ts = drop 1 (dropWhile (/= Tok "in") xs)

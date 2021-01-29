@@ -16,7 +16,7 @@ Reduction (P: nat -> Type) (z: P Z) (sn: forall (n: nat), (P n) -> P (S n)) (n: 
     (rec_nat P z sn (S n)) := sn n (rec_nat P z sn n).
 *)
 
-Unfolding rec_nat.
+Transparent rec_nat.
 
 Inductive fin : nat -> Type :=
 | finS : forall (n: nat), (fin n) -> fin (S n)
@@ -48,7 +48,7 @@ Reduction
     (rec_fin P z s (S n) (finS n f)) := s n f (rec_fin P z s n f).
 *)
 
-Unfolding rec_fin.
+Transparent rec_fin.
 
 Definition absurd := forall (a: Type), a.
 
@@ -61,6 +61,6 @@ Definition not_fin_z :=
 
 Definition add := fun (x y: nat) => rec_nat (fun _ => nat) y (fun _ p => S p) x.
 
-Unfolding add.
+Transparent add.
 
 Compute add 4 5.

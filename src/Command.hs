@@ -59,7 +59,8 @@ data Command
     | PrintAll
     | PrintUniverses
     | CheckConstraints [Constraint]
-    | Unfolding [Name]
+    | Transparent [Name]
+    | Opaque [Name]
     | MkInductive Inductive
 
 instance Show Command where
@@ -71,6 +72,8 @@ instance Show Command where
     show (MkInductive i) = "Defining " ++ show i
     show (Eval red e) = "Computing " ++ intercalate ", " (fmap show red) ++ " \"" ++ show e ++ "\""
     show (CheckConstraints xs) = "Checking Constraints " ++ intercalate ", " (fmap show xs)
+    show (Transparent xs) = "Transparent " ++ unwords xs
+    show (Opaque xs) = "Opaque " ++ unwords xs
     show _ = "This command should not fail"
 
 data CommandOutput
@@ -174,12 +177,18 @@ docmd' (Eval red e) (ctx,ord,u,ev) = do
     (x,_) <- liftEither (runRes (ev ++ ds) u' (eval ctx e >>= genScheme red ctx))
     tell [Evaluated x]
     pure (ctx,ord,u,ev)
-docmd' (Unfolding ns) (ctx,ord,u,ev) = do
+docmd' (Transparent ns) (ctx,ord,u,ev) = do
     mapM_ (\n -> case getElem n ctx of
         Just _ -> pure ()
-        _ -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ev    
+        _ -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ns
     tell [Success]
     pure (ctx,ord,u,ev++ns)
+docmd' (Opaque ns) (ctx,ord,u,ev) = do
+    mapM_ (\n -> case getElem n ctx of
+        Just _ -> pure ()
+        _ -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ns
+    tell [Success]
+    pure (ctx,ord,u,filter (`notElem` ns) ev)
 docmd' (Print ns) (ctx,ord,u,ev) = do
     defs <- mapM (\n -> case getElem n ctx of
         Just d -> pure d

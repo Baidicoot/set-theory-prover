@@ -20,9 +20,10 @@ ATT is interacted with using a (quite aesthetic, even if I say so myself) 'verna
     + valid reduction strategies (space-separated) are `ehnf`, `esnf`, `(match exp)`, and `(unfolding ...)`
 - creation inductive types (`Inductive name (arg0 : t0) ... (argN : tN) : exp := case0 : exp0 | ... | caseN : expN`) with automatically derived induction rules
 - printing definitions or axioms (`Print name`) or the entire context (`Print All`), or the universe ordering graph (`Print Universes`).
-- setting a name to be reduced agressively (`Unfold name`)
+- setting a name's δ-expansion or ρ-reduction to be reduced agressively (`Transparent name`)
+- setting a name's δ-expansion or ρ-reduction to only be reduced during conversion (`Opaque name`)
 
-In ATT, a name's δ-expansion or ρ-reduction is not reduced agressively, but instead only when types are being matched. For example, in the environment given by `Definition id := fun (A: Type) (x: A) => x`, only when attempting to match `id Type` with, say, `fun (y: Type) => y`, is the definition of `id` unfolded.
+In ATT, a name's δ-expansion or ρ-reduction is not, by default, reduced agressively, but instead only when types are being converted. For example, in the environment given by `Definition id := fun (A: Type) (x: A) => x`, only when attempting to match `id Type` with, say, `fun (y: Type) => y`, is the definition of `id` unfolded.
 
 ## Using ATT
 ATT can be compiled and run with `cabal` by running `cabal new-repl`, where you should be given the prompt `att> `. The REPL accepts commands (for example `Definition False := forall (P: Type), P` and `Check x. Check y`), but also the queries `:l FILEPATH` which interprets the file at `FILEPATH`, and `:q` which quits the REPL. For example, you can test some examples with `:l examples.att`.
