@@ -223,15 +223,18 @@ makeCase s nconst nvary c t = do
     (subts,index) <- case getParams t of
         (subts,VApp (VFree t) index) | s == t -> pure (subts,index)
         _ -> throwError ("Constructor type of '" ++ c ++ "' must be '" ++ s ++ "'")
+    let nargs = length subts
     let term = VApp (VFree c) . fmap (\i -> VApp (VVar i) []) . reverse $
-            [0..length subts-1] ++ [length subts+1..nconst+length subts]
-    let conc = VApp (VVar (length subts)) (drop nconst index ++ [term])
-    let x = foldl (\t (i,a) -> case a of
+            [0..nargs-1] ++ [nargs+1..nconst+nargs]
+    let conc = VApp (VVar nargs) (drop nconst index ++ [term])
+    let x = foldl (\t (i,b) ->
+            let a = modifFree (+1) i b
+            in case a of
             VApp (VFree s') index | s == s' ->
                 let t' = modifFree (+1) 0 t
-                in VPi . Abs (Just a) . VPi $ Abs (Just (VApp (VVar (length subts - i))
+                in VPi . Abs (Just a) . VPi $ Abs (Just (VApp (VVar i)
                     (drop nconst (fmap (modifFree (+1) 0) index) ++ [VApp (VVar 0) []]))) t'
-            _ -> VPi (Abs (Just a) t)) conc (zip [0..] subts)
+            _ -> VPi (Abs (Just a) t)) conc (zip [nargs-1,nargs-2..0] subts)
     pure x
 
 getArgs :: Val -> [Val]
@@ -289,7 +292,7 @@ doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
     let prop = forallParams varyingParams (VPi
             . Abs (Just $ VApp (VFree s) ((\i -> VApp (VVar i) []) <$> reverse [0..nconst+nvary-1])) $ VSet u)
     u <- pure (u+1)
-    let conc = forallParams varyingParams $ VPi $ Abs (Just
+    let conc = forallParams (uncurry (modifFree (+1)) <$> zip [nvary-1,nvary-2..0] varyingParams) $ VPi $ Abs (Just
             . VApp (VFree s)
             . fmap (\i -> VApp (VVar i) [])
             . reverse $ [0..nvary - 1] ++ [nvary + 1..nvary + nconst])

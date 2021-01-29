@@ -385,12 +385,12 @@ fit g v0@(VLam ab) v1@(VLam bb) = do
 -- eta-expansion
 fit g v0@(VLam _) f = do
     vs <- getVars
-    trace ("while eta-expanding \"" ++ showVal vs f) $ do
+    trace ("while eta-expanding \"" ++ showVal vs v0 ++ "\" from \"" ++ showVal vs f ++ "\"") $ do
         b <- evalApp g (modifFree (+1) 0 f) (VApp (VVar 0) [])
         fit g v0 (VLam (Abs Nothing b))
 fit g f v1@(VLam _) = do
     vs <- getVars
-    trace ("while eta-expanding \"" ++ showVal vs f) $ do
+    trace ("while eta-expanding \"" ++ showVal vs f ++ "\" to \"" ++ showVal vs v1 ++ "\"") $ do
         b <- evalApp g (modifFree (+1) 0 f) (VApp (VVar 0) [])
         fit g (VLam (Abs Nothing b)) v1
 fit g (VSet i) (VSet j) = constrain (j :>=: i)
