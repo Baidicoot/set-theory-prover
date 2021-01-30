@@ -27,7 +27,7 @@ Definition NatD := `Σ (tag 2) (rec_tag (fun _ _ => desc) (fun _ _ => `ind×) (f
 
 Axiom μ : desc -> Type.
 Axiom con : forall (D: desc), (interp D (μ D)) -> μ D.
-
+(*
 Axiom All : forall (D: desc) (X: Type), (X -> Type) -> (interp D X) -> Type.
 
 Reduction (X: Type) (P: X -> Type) (All `1 X P I) := unit.
@@ -45,5 +45,6 @@ Reduction (X: Type) (P: X -> Type) (p: forall (x: X), P x)
     (U: Type) (F: U -> desc) (F_i: U -> Type) (u: U) (f_i: F_i u)
     (all (`Σ U F) X P p (pair U F_i u f_i)) := all (F u) X P p f_i.
 Reduction (X: Type) (P: X -> Type) (p: forall (x: X), P x)
-    (D: desc) (x: X)
-    (all (`ind× D) X P p (pair X P x (p x))) := pair _ _ _ _.
+    (D: desc) (x: X) (T: X -> Type) (d: T x)
+    (all (`ind× D) X P p (pair X T x d)) := pair (P x) (fun _ => All D X P p) (p x) (all D X P p d).
+*)

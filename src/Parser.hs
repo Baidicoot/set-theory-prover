@@ -187,7 +187,7 @@ elab :: UniverseID -> [Name] -> [Name] -> [Var] -> AST -> Cmd (Exp,UniverseID,[N
 elab u ps _ _ (ASTNat n) = pure (nTimes n (App (Free "S")) (Free "Z"),u,ps)
 elab u ps hs ns (ASTVar v) = case indexOf ns (User v) of
     Just i -> pure (Var i Nothing,u,ps)
-    Nothing -> pure (if v `elem` hs then Hole v else Free v,u,ps)
+    Nothing -> pure (if v `elem` hs then Meta v else Free v,u,ps)
 elab u ps hs ns (ASTAnn a b) = do
     (a,u,ps) <- elab u ps hs ns a
     (b,u,ps) <- elab u ps hs ns b
@@ -222,7 +222,7 @@ parseParRedex :: [Name] -> [Name] -> [Var] -> [ParExp] -> Cmd (Exp,[Name])
 parseParRedex _ (h:hs) _ [Tok "_"] = pure (Hole h,hs)
 parseParRedex ns hs vs [Tok n] = case indexOf vs (User n) of
     Just i -> pure (Var i Nothing,hs)
-    Nothing -> pure (if n `elem` ns then Hole n else Free n,hs)
+    Nothing -> pure (if n `elem` ns then Meta n else Free n,hs)
 parseParRedex ns hs vs (Tok n:es) = (\(es,hs) -> (foldl App (Free n) es,hs)) <$> foldM (\(es,hs) p -> do
     (e,hs) <- parseParRedex ns hs vs (ext p)
     pure (es++[e],hs)) ([],hs) es

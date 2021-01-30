@@ -38,6 +38,7 @@ data Exp
     = Ann Exp Exp
     | Set UniverseID
     | Hole Name
+    | Meta Name
     | Pi Var (Abstraction Exp)
     -- variable is marked with a type if free
     | Var Int (Maybe Val)
@@ -55,6 +56,7 @@ parensLHS ns e = showExp ns e
 showExp :: [Var] -> Exp -> String
 showExp ns (Ann e t) = showExp ns e ++ " : " ++ showExp ns t
 showExp ns (Set i) = "Type"
+showExp ns (Meta p) = "!" ++ p
 showExp ns (Hole p) = "?" ++ p
 showExp ns (Pi Dummy (Abs (Just d) r)) = parens (showExp ns d) ++ " -> " ++ showExp (Dummy:ns) r
 showExp ns (Pi n (Abs (Just d) r)) = "forall (" ++ show n ++ ": " ++ showExp ns d ++ "), " ++ showExp (n:ns) r
@@ -74,7 +76,8 @@ data Abstraction e
 
 data ValVar
     = VVar Int
-    | Unknown Name
+    | VHole Name
+    | VMeta Name
     | VFree Name
     deriving(Eq)
 
@@ -131,7 +134,8 @@ showNames us ns (VPi abs) =
         else parens t ++ " -> " ++ x
 showNames us ns (VApp (VVar i) vs) = (if length ns <= i then '@':show i else show (ns !! i)) ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VApp (VFree i) vs) = i ++ concatMap ((' ':) . parens . showNames us ns) vs
-showNames us ns (VApp (Unknown n) vs) = "?" ++ n ++ concatMap ((' ':) . parens . showNames us ns) vs
+showNames us ns (VApp (VHole n) vs) = "?" ++ n ++ concatMap ((' ':) . parens . showNames us ns) vs
+showNames us ns (VApp (VMeta n) vs) = "!" ++ n ++ concatMap ((' ':) . parens . showNames us ns) vs
 showNames us ns (VSet i) = "Type"
 
 showVal :: [Var] -> Val -> String
@@ -272,8 +276,8 @@ eval g (App f x) = do
     x' <- eval g x
     evalApp g f' x'
 eval g (Lam n abs) = VLam <$> evalAbs g abs
-eval g (Hole p) = do
-    pure (VApp (Unknown p) [])
+eval g (Meta p) = pure (VApp (VMeta p) [])
+eval g (Hole p) = pure (VApp (VHole p) [])
 
 evalApp :: Ctx -> Val -> Val -> Res Val
 evalApp g (VApp n vs) v = unfold g (VApp n (vs ++ [v]))
@@ -319,7 +323,7 @@ esnf g v = do
 type Subst = [(Name,Val)]
 
 applySubst :: Ctx -> Subst -> Val -> Res Val
-applySubst g sub (VApp (Unknown n) vs) | isJust (lookup n sub) = do
+applySubst g sub (VApp (VMeta n) vs) | isJust (lookup n sub) = do
     let (Just v) = lookup n sub
     vs <- mapM (applySubst g sub) vs
     foldM (evalApp g) v vs
@@ -346,13 +350,13 @@ matchManyRedex g ((a,b):xs) = do
 matchManyRedex _ [] = pure (Just [])
 
 occurs :: Name -> Val -> Bool
-occurs n (VApp m xs) = m == Unknown n || any (occurs n) xs
+occurs n (VApp m xs) = m == VMeta n || any (occurs n) xs
 occurs n (VLam (Abs d r)) = occurs n r || any (occurs n) d
 occurs n (VPi (Abs d r)) = occurs n r || any (occurs n) d
 occurs _ _ = False
 
 placeholdersIn :: Val -> [Name]
-placeholdersIn (VApp (Unknown n) xs) = n:concatMap placeholdersIn xs
+placeholdersIn (VApp (VMeta n) xs) = n:concatMap placeholdersIn xs
 placeholdersIn (VApp _ xs) = concatMap placeholdersIn xs
 placeholdersIn (VLam (Abs d r)) = catMaybes (traverse placeholdersIn d) ++ placeholdersIn r
 placeholdersIn (VPi (Abs d r)) = catMaybes (traverse placeholdersIn d) ++ placeholdersIn r
@@ -363,8 +367,8 @@ matchRedex :: Ctx -> Val -> Val -> Res (Maybe Subst)
 matchRedex g (VPi (Abs _ a)) (VPi (Abs _ b)) = matchRedex g a b
 matchRedex g (VLam (Abs _ a)) (VLam (Abs _ b)) = matchRedex g a b
 matchRedex g (VApp n as) (VApp m bs) | n == m && length as == length bs = matchManyRedex g (zip as bs)
-matchRedex _ v (VApp (Unknown n) []) | occurs n v = pure Nothing
-matchRedex _ v (VApp (Unknown n) []) = pure (Just [(n,v)])
+matchRedex _ v (VApp (VMeta n) []) | occurs n v = pure Nothing
+matchRedex _ v (VApp (VMeta n) []) = pure (Just [(n,v)])
 matchRedex g a b = do
     a' <- reduce g a
     b' <- reduce g b
@@ -377,7 +381,7 @@ matchRedex g a b = do
 rhoReduce :: Ctx -> Val -> Ctx -> Res (Maybe Val)
 rhoReduce g v@(VApp n ns) (CtxRedex _ i@(VApp m ms) o:xs) | n == m && length ns >= length ms = do
     let usedNames = nub $ placeholdersIn i ++ placeholdersIn o ++ placeholdersIn v
-    let renaming = zip usedNames ((\n -> VApp (Unknown n) []) <$> filter (`notElem` usedNames) holes)
+    let renaming = zip usedNames ((\n -> VApp (VMeta n) []) <$> filter (`notElem` usedNames) holes)
     ms <- mapM (applySubst g renaming) ms
     ttdebug (show renaming)
     ttdebug (show (VApp m ms))
@@ -405,8 +409,8 @@ reduce g v = do
         Just r -> pure (Just r)
 
 fit :: Ctx -> Val -> Val -> Res ()
-fit g (VApp (Unknown _) _) _ = pure ()
-fit g _ (VApp (Unknown _) _) = pure ()
+fit g (VApp (VHole _) _) _ = pure ()
+fit g _ (VApp (VHole _) _) = pure ()
 fit g v0@(VPi ab) v1@(VPi bb) = do
     vs <- getVars
     trace ("while fitting \"" ++ showVal vs v0 ++ "\" to \"" ++ showVal vs v1 ++ "\"") $ fitAbs g ab bb
@@ -455,6 +459,7 @@ markFree _ _ (Set i) = Set i
 markFree _ _ (Free n) = Free n
 markFree _ _ (Var i t) = Var i t
 markFree _ _ (Hole p) = Hole p
+markFree _ _ (Meta p) = Meta p
 
 markFreeAbs :: Int -> Val -> Abstraction Exp -> Abstraction Exp
 markFreeAbs n x (Abs d r) = Abs (fmap (markFree n x) d) (markFree (n+1) (modifFree (+1) 0 x) r)
@@ -464,9 +469,10 @@ infer g (Set i) = do
     j <- freshUniverse
     constrain (j :>: i)
     pure (VSet j)
-infer g (Hole n) = case typeInCtx n g of
-    Just t -> foundHole n t >> pure t
-    Nothing -> throwError ("Could not infer type of \"?" ++ n ++ "\".")
+infer g (Meta n) = case typeInCtx n g of
+    Just t -> pure t
+    Nothing -> throwError ("Undeclared metavariable \"" ++ n ++ "\"")
+infer g (Hole n) = throwError ("Could not infer type of \"?" ++ n ++ "\".")
 infer g (Var i (Just t)) = pure t
 infer g (Free n) = case typeInCtx n g of
     Just t -> pure t
@@ -521,29 +527,27 @@ check g x t = trace ("while checking \"" ++ showExp [] x ++ "\" has type \"" ++ 
     xt <- infer g x
     fit g xt t
 
-inferWithOrderCheck :: [Name] -> Ctx -> OrderingGraph -> Exp -> Res (Either [(Name,[Var],Val)] (Val,OrderingGraph))
-inferWithOrderCheck ignoring g gr e = do
+inferWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Res (Either [(Name,[Var],Val)] (Val,OrderingGraph))
+inferWithOrderCheck g gr e = do
     (v,(c,m)) <- listen (infer g e)
     let h = concatMap (\x -> case x of
             FoundHole a b c -> [(a,b,c)]
             _ -> []) m
     gr <- appConstraints gr c
-    let h' = filter (\(n,_,_) -> n `notElem` ignoring) h
-    case h' of
+    case h of
         [] -> pure (Right (v,gr))
-        _ -> pure (Left h')
+        _ -> pure (Left h)
 
-checkWithOrderCheck :: [Name] -> Ctx -> OrderingGraph -> Exp -> Val -> Res (Either [(Name,[Var],Val)] OrderingGraph)
-checkWithOrderCheck ignoring g gr e t = do
+checkWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Val -> Res (Either [(Name,[Var],Val)] OrderingGraph)
+checkWithOrderCheck g gr e t = do
     (_,(c,m)) <- listen (check g e t)
     let h = concatMap (\x -> case x of
             FoundHole a b c -> [(a,b,c)]
             _ -> []) m
     gr <- appConstraints gr c
-    let h' = filter (\(n,_,_) -> n `notElem` ignoring) h
-    case h' of
+    case h of
         [] -> pure (Right gr)
-        _ -> pure (Left h')
+        _ -> pure (Left h)
 
 showPar :: Show x => x -> String
 showPar x | ' ' `elem` show x = "(" ++ show x ++ ")"

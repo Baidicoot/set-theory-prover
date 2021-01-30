@@ -135,7 +135,7 @@ docmd c g = (Right <$> docmd' c g) `catchError` \s -> pure (Left $ s ++ "\nwhile
 
 chkAll :: CommandState -> [Exp] -> [Val] -> Cmd ([Val],CommandState)
 chkAll g@(ctx,ord,u,ev) (e:es) vs = do
-    (r,u) <- liftEither (runRes ev (u+1) (checkWithOrderCheck [] ctx ord (marksFree (zip [0..] vs) e) (VSet u)))
+    (r,u) <- liftEither (runRes ev (u+1) (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) e) (VSet u)))
     ord <- catchHoles r
     (v,u) <- liftEither (runRes ev u (eval ctx e))
     chkAll (ctx,ord,u,ev) es (fmap (modifFree (+1) 0) (v:vs))
@@ -146,7 +146,7 @@ extCtxWithHoles ns ctx = foldr (\(n,v) -> (CtxHoleTy n v:)) ctx ns
 
 chkHoles :: CommandState -> [(Name,Exp)] -> [(Name,Val)] -> Cmd [(Name,Val)]
 chkHoles g@(ctx,ord,u,ev) ((n,e):es) vs = do
-    (r,u) <- liftEither (runRes ev (u+1) (checkWithOrderCheck (fmap fst vs) (extCtxWithHoles vs ctx) ord e (VSet u)))
+    (r,u) <- liftEither (runRes ev (u+1) (checkWithOrderCheck (extCtxWithHoles vs ctx) ord e (VSet u)))
     ord <- catchHoles r
     (v,u) <- liftEither (runRes ev u (eval (extCtxWithHoles vs ctx) e))
     chkHoles (ctx,ord,u,ev) es ((n,v):vs)
@@ -156,19 +156,19 @@ docmd' :: Command -> CommandState -> Cmd CommandState
 docmd' (Axiom n _) (ctx,ord,u,e) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
 docmd' (Define n _) (ctx,ord,u,e) | n `inCtx` ctx = throwError ("\"" ++ n ++ "\" is already defined.")
 docmd' (Axiom n e) (ctx,ord,u,ev) = do
-    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
+    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
     (_,ord) <- catchHoles r
     (x,u) <- liftEither (runRes ev u (eval ctx e))
     out [DefAxiom n x]
     pure (CtxAxiom n x:ctx,ord,u,ev)
 docmd' (Define n e) (ctx,ord,u,ev) = do
-    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
+    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
     (t,ord) <- catchHoles r
     (x,u) <- liftEither (runRes ev u (eval ctx e))
     out [Defined n t x]
     pure (CtxDelta n t x:ctx,ord,u,ev)
 docmd' (Check e) (ctx,ord,u,ev) = do
-    (r,_) <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
+    (r,_) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
     (t,_) <- catchHoles r
     out [Checked t]
     pure (ctx,ord,u,ev)
@@ -176,7 +176,7 @@ docmd' (Eval red e) (ctx,ord,u,ev) = do
     let ds = concatMap (\r -> case r of
             DeltaWith xs -> xs
             _ -> []) red
-    (_,u') <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
+    (_,u') <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
     (x,_) <- liftEither (runRes (ev ++ ds) u' (eval ctx e >>= genScheme red ctx))
     out [Evaluated x]
     pure (ctx,ord,u,ev)
@@ -204,10 +204,10 @@ docmd' (CheckConstraints cs) (ctx,ord,u,ev) =
     liftEither (runRes ev u (appConstraints ord cs)) >> out [Success] >> pure (ctx,ord,u,ev)
 docmd' (Redex vs i j) (ctx,ord,u,ev) = do
     vs <- chkHoles (ctx,ord,u,ev) (reverse vs) []
-    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck (fmap fst vs) (extCtxWithHoles vs ctx) ord i))
+    (r,u) <- liftEither (runRes ev u (inferWithOrderCheck (extCtxWithHoles vs ctx) ord i))
     (t,ord) <- catchHoles r
     (i,u) <- liftEither (runRes ev u (eval (extCtxWithHoles vs ctx) i))
-    (r,u) <- liftEither (runRes ev u (checkWithOrderCheck (fmap fst vs) (extCtxWithHoles vs ctx) ord j t))
+    (r,u) <- liftEither (runRes ev u (checkWithOrderCheck (extCtxWithHoles vs ctx) ord j t))
     ord <- catchHoles r
     (j,u) <- liftEither (runRes ev u (eval (extCtxWithHoles vs ctx) j))
     out [DefRedex (fmap fst vs) i j]
@@ -254,17 +254,17 @@ nTimes n f x = f (nTimes (n-1) f x)
 
 makeCaseRedex :: CommandState -> Name -> [Name] -> Name -> Int -> [Val] -> [Val] -> Cmd CommandState
 makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
-    let parArgs = fmap (\i -> VApp (Unknown ('P':show i)) []) [0..npar-1]
+    let parArgs = fmap (\i -> VApp (VMeta ('P':show i)) []) [0..npar-1]
     (consTypes,consNames) <- foldM (\(args,consNames) v -> do
         (r,_) <- liftEither (runRes ev u (substs ctx v consNames))
         let n = 'C':show (length args)
-        pure ((n,r):args,VApp (Unknown n) []:consNames))
+        pure ((n,r):args,VApp (VMeta n) []:consNames))
         ([],reverse parArgs) (reverse st)
     typeArgs <- mapM (\v -> do
         (r,_) <- liftEither (runRes ev u (substs ctx v consNames))
         pure r) (drop npar ty)
-    let prop = VApp (Unknown "P") []
-    let cases = fmap (\n -> VApp (Unknown ("case_" ++ n)) []) cs
+    let prop = VApp (VMeta "P") []
+    let cases = fmap (\n -> VApp (VMeta ("case_" ++ n)) []) cs
     let lhsArgs = parArgs ++ [prop] ++ cases ++ typeArgs ++ [VApp (VFree c) (reverse consNames)]
     let lhs = VApp (VFree ("rec_" ++ s)) lhsArgs
     let rhsArgs = foldl (\xs (n,t) -> case getParams t of
@@ -272,12 +272,12 @@ makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
                 let prfTyArgs = drop npar ts
                     nstpar = length stpar
                     prfArgs = parArgs ++ [prop] ++ cases ++ prfTyArgs
-                        ++ [VApp (Unknown n) (fmap (\i -> VApp (VVar i) []) [nstpar-1,nstpar-2..0])]
+                        ++ [VApp (VMeta n) (fmap (\i -> VApp (VVar i) []) [nstpar-1,nstpar-2..0])]
                     prf = VApp (VFree ("rec_" ++ s)) prfArgs
                     prfn = nTimes nstpar (VLam . Abs Nothing) prf
-                in VApp (Unknown n) []:prfn:xs
-            _ -> VApp (Unknown n) []:xs) [] consTypes
-    let rhs = VApp (Unknown ("case_" ++ c)) rhsArgs
+                in VApp (VMeta n) []:prfn:xs
+            _ -> VApp (VMeta n) []:xs) [] consTypes
+    let rhs = VApp (VMeta ("case_" ++ c)) rhsArgs
     let nomicArgs = reverse $
             fmap (('P':) . show) [0..npar-1] ++ ["P"] ++ fmap ("case_"++) cs ++ fmap (('C':) . show) [0..length st-1]
     out [DefRedex [] lhs rhs]
@@ -286,13 +286,13 @@ makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
 doInductive :: CommandState -> Inductive -> Cmd CommandState
 doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
     (vs,(ctx,ord,u,ev)) <- chkAll (ctx,ord,u,ev) (reverse vs) []
-    (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck [] ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
+    (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
     ord <- catchHoles r
     (t,u) <- liftEither (runResVars vrs ev (u+1) (eval ctx (marksFree (zip [0..] vs) t) >>= esnf ctx))
     let forVs = fmap (\(i,v) -> modifFree (\x->x-i) 0 v) (zip [length vs-1,length vs-2..0] vs)
     ctx <- pure (CtxAxiom s (forallParams forVs t):ctx)
     (cs,(ctx,ord,u,ev)) <- foldM (\(cs,(ctx,ord,u,ev)) (n,t) -> do
-        (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck [] ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
+        (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
         ord <- catchHoles r
         (t,u) <- liftEither (runResVars vrs ev (u+1) (eval ctx (marksFree (zip [0..] vs) t) >>= esnf ctx))
         ctx <- pure (CtxAxiom n (forallParams forVs t):ctx)
