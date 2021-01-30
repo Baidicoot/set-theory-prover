@@ -102,6 +102,9 @@ boundVarUsed (Abs _ r) = varUsed 0 r
 names :: [String]
 names = [1..] >>= flip replicateM ['a'..'z']
 
+holes :: [String]
+holes = [1..] >>= flip replicateM ['A'..'Z']
+
 showNamesAbs :: [String] -> [Var] -> Abstraction Val -> (String,Maybe String,String)
 showNamesAbs (u:unused) ns (Abs d r) = (u,fmap (showNames unused ns) d,showNames unused (User u:ns) r)
 
@@ -179,8 +182,12 @@ deltaInCtx n (_:xs) = deltaInCtx n xs
 deltaInCtx _ [] = Nothing
 
 -- evaluation contexts - list of definitions to agressively unfold
+data KernelMessage
+    = FoundHole Name [Var] Val
+    | TTDebug String
+
 type EvalCtx = [Name]
-type Res = RWST ([Var], EvalCtx) ([Constraint],[(Name,[Var],Val)]) UniverseID (Except String)
+type Res = ExceptT String (RWS ([Var], EvalCtx) ([Constraint],[KernelMessage]) UniverseID)
 
 trace :: String -> Res a -> Res a
 trace s m = catchError m (\e -> throwError (e ++ "\n" ++ s))
@@ -189,7 +196,12 @@ runRes :: EvalCtx -> UniverseID -> Res a -> Either String (a,UniverseID)
 runRes = runResVars []
 
 runResVars :: [Var] -> EvalCtx -> UniverseID -> Res a -> Either String (a,UniverseID)
-runResVars v e u r = fmap (\(a,b,_) -> (a,b)) (runExcept (runRWST r (v,e) u))
+runResVars v e u r = (\(a,b,_) -> fmap (\x -> (x,b)) a) (runRWS (runExceptT r) (v,e) u)
+
+runResDebug :: [Var] -> EvalCtx -> UniverseID -> Res a -> (Either String (a,UniverseID),[String])
+runResDebug v e u r = (\(a,b,(_,k)) -> (fmap (\x -> (x,b)) a,concatMap (\m -> case m of
+    TTDebug s -> [s]
+    _ -> []) k)) (runRWS (runExceptT r) (v,e) u)
 
 withVar :: Var -> Res a -> Res a
 withVar n = local (\(a,b) -> (n:a,b))
@@ -212,7 +224,10 @@ constrain c = tell ([c],[])
 foundHole :: Name -> Val -> Res ()
 foundHole n v = do
     vs <- getVars
-    tell ([],[(n,vs,v)])
+    tell ([],[FoundHole n vs v])
+
+ttdebug :: String -> Res ()
+ttdebug s = tell ([],[TTDebug s])
 
 modifAbs :: (Int -> Int) -> Int -> Abstraction Val -> Abstraction Val
 modifAbs f n (Abs d r) = Abs (fmap (modifFree f n) d) (modifFree f (n+1) r)
@@ -336,14 +351,20 @@ occurs n (VLam (Abs d r)) = occurs n r || any (occurs n) d
 occurs n (VPi (Abs d r)) = occurs n r || any (occurs n) d
 occurs _ _ = False
 
+placeholdersIn :: Val -> [Name]
+placeholdersIn (VApp (Unknown n) xs) = n:concatMap placeholdersIn xs
+placeholdersIn (VApp _ xs) = concatMap placeholdersIn xs
+placeholdersIn (VLam (Abs d r)) = catMaybes (traverse placeholdersIn d) ++ placeholdersIn r
+placeholdersIn (VPi (Abs d r)) = catMaybes (traverse placeholdersIn d) ++ placeholdersIn r
+placeholdersIn (VSet _) = []
+
 -- match val, redex
 matchRedex :: Ctx -> Val -> Val -> Res (Maybe Subst)
-matchRedex g (VSet _) (VSet _) = pure (Just [])
 matchRedex g (VPi (Abs _ a)) (VPi (Abs _ b)) = matchRedex g a b
 matchRedex g (VLam (Abs _ a)) (VLam (Abs _ b)) = matchRedex g a b
-matchRedex g v (VApp (Unknown n) []) | occurs n v = pure Nothing
-matchRedex g v (VApp (Unknown n) []) = pure (Just [(n,v)])
 matchRedex g (VApp n as) (VApp m bs) | n == m && length as == length bs = matchManyRedex g (zip as bs)
+matchRedex _ v (VApp (Unknown n) []) | occurs n v = pure Nothing
+matchRedex _ v (VApp (Unknown n) []) = pure (Just [(n,v)])
 matchRedex g a b = do
     a' <- reduce g a
     b' <- reduce g b
@@ -354,10 +375,18 @@ matchRedex g a b = do
         (Nothing,Nothing) -> pure Nothing
 
 rhoReduce :: Ctx -> Val -> Ctx -> Res (Maybe Val)
-rhoReduce g (VApp n ns) (CtxRedex _ (VApp m ms) o:xs) | n == m && length ns >= length ms = do
+rhoReduce g v@(VApp n ns) (CtxRedex _ i@(VApp m ms) o:xs) | n == m && length ns >= length ms = do
+    let usedNames = nub $ placeholdersIn i ++ placeholdersIn o ++ placeholdersIn v
+    let renaming = zip usedNames ((\n -> VApp (Unknown n) []) <$> filter (`notElem` usedNames) holes)
+    ms <- mapM (applySubst g renaming) ms
+    ttdebug (show renaming)
+    ttdebug (show (VApp m ms))
+    ttdebug (show v)
     s <- matchManyRedex g (zip (take (length ms) ns) ms)
+    ttdebug (show s)
     case s of
         Just s -> do
+            o <- applySubst g renaming o
             o' <- applySubst g s o
             Just <$> foldM (evalApp xs) o' (drop (length ms) ns)
         Nothing -> rhoReduce g (VApp n ns) xs
@@ -377,6 +406,7 @@ reduce g v = do
 
 fit :: Ctx -> Val -> Val -> Res ()
 fit g (VApp (Unknown _) _) _ = pure ()
+fit g _ (VApp (Unknown _) _) = pure ()
 fit g v0@(VPi ab) v1@(VPi bb) = do
     vs <- getVars
     trace ("while fitting \"" ++ showVal vs v0 ++ "\" to \"" ++ showVal vs v1 ++ "\"") $ fitAbs g ab bb
@@ -493,19 +523,27 @@ check g x t = trace ("while checking \"" ++ showExp [] x ++ "\" has type \"" ++ 
 
 inferWithOrderCheck :: [Name] -> Ctx -> OrderingGraph -> Exp -> Res (Either [(Name,[Var],Val)] (Val,OrderingGraph))
 inferWithOrderCheck ignoring g gr e = do
-    (v,(c,h)) <- listen (infer g e)
+    (v,(c,m)) <- listen (infer g e)
+    let h = concatMap (\x -> case x of
+            FoundHole a b c -> [(a,b,c)]
+            _ -> []) m
     gr <- appConstraints gr c
-    case filter (\(n,_,_) -> n `notElem` ignoring) h of
+    let h' = filter (\(n,_,_) -> n `notElem` ignoring) h
+    case h' of
         [] -> pure (Right (v,gr))
-        _ -> pure (Left h)
+        _ -> pure (Left h')
 
 checkWithOrderCheck :: [Name] -> Ctx -> OrderingGraph -> Exp -> Val -> Res (Either [(Name,[Var],Val)] OrderingGraph)
 checkWithOrderCheck ignoring g gr e t = do
-    (_,(c,h)) <- listen (check g e t)
+    (_,(c,m)) <- listen (check g e t)
+    let h = concatMap (\x -> case x of
+            FoundHole a b c -> [(a,b,c)]
+            _ -> []) m
     gr <- appConstraints gr c
-    case filter (\(n,_,_) -> n `notElem` ignoring) h of
+    let h' = filter (\(n,_,_) -> n `notElem` ignoring) h
+    case h' of
         [] -> pure (Right gr)
-        _ -> pure (Left h)
+        _ -> pure (Left h')
 
 showPar :: Show x => x -> String
 showPar x | ' ' `elem` show x = "(" ++ show x ++ ")"

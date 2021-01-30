@@ -96,6 +96,9 @@ trace s r = catchError r (\e -> throwError (e ++ "\n" ++ s))
 runCmd :: Cmd a -> (Either String a,[CommandOutput])
 runCmd = runWriter . runExceptT
 
+out :: [CommandOutput] -> Cmd ()
+out = tell
+
 instance Show CommandOutput where
     show (DefAxiom s v) = "Defined Axiom \'" ++ s ++ "\' : " ++ show v ++ ".\n"
     show (Defined s t v) = "Defined \'" ++ s ++ "\' : " ++ show t ++ "\n    := " ++ show v ++ ".\n"
@@ -127,8 +130,8 @@ mapLeft _ (Right x) = Right x
 
 catchHoles = liftEither . mapLeft (unlines . fmap (\(n,vs,v) -> "Found hole '?" ++ n ++ "' of type \"" ++ showVal vs v ++ "\""))
 
-docmd :: Command -> CommandState -> Cmd CommandState
-docmd c g = docmd' c g `catchError` \s -> throwError (s ++ "\nwhile " ++ show c)
+docmd :: Command -> CommandState -> Cmd (Either String CommandState)
+docmd c g = (Right <$> docmd' c g) `catchError` \s -> pure (Left $ s ++ "\nwhile " ++ show c)
 
 chkAll :: CommandState -> [Exp] -> [Val] -> Cmd ([Val],CommandState)
 chkAll g@(ctx,ord,u,ev) (e:es) vs = do
@@ -156,18 +159,18 @@ docmd' (Axiom n e) (ctx,ord,u,ev) = do
     (r,u) <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
     (_,ord) <- catchHoles r
     (x,u) <- liftEither (runRes ev u (eval ctx e))
-    tell [DefAxiom n x]
+    out [DefAxiom n x]
     pure (CtxAxiom n x:ctx,ord,u,ev)
 docmd' (Define n e) (ctx,ord,u,ev) = do
     (r,u) <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
     (t,ord) <- catchHoles r
     (x,u) <- liftEither (runRes ev u (eval ctx e))
-    tell [Defined n t x]
+    out [Defined n t x]
     pure (CtxDelta n t x:ctx,ord,u,ev)
 docmd' (Check e) (ctx,ord,u,ev) = do
     (r,_) <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
     (t,_) <- catchHoles r
-    tell [Checked t]
+    out [Checked t]
     pure (ctx,ord,u,ev)
 docmd' (Eval red e) (ctx,ord,u,ev) = do
     let ds = concatMap (\r -> case r of
@@ -175,30 +178,30 @@ docmd' (Eval red e) (ctx,ord,u,ev) = do
             _ -> []) red
     (_,u') <- liftEither (runRes ev u (inferWithOrderCheck [] ctx ord e))
     (x,_) <- liftEither (runRes (ev ++ ds) u' (eval ctx e >>= genScheme red ctx))
-    tell [Evaluated x]
+    out [Evaluated x]
     pure (ctx,ord,u,ev)
 docmd' (Transparent ns) (ctx,ord,u,ev) = do
     mapM_ (\n -> case getElem n ctx of
         Just _ -> pure ()
         _ -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ns
-    tell [Success]
+    out [Success]
     pure (ctx,ord,u,ev++ns)
 docmd' (Opaque ns) (ctx,ord,u,ev) = do
     mapM_ (\n -> case getElem n ctx of
         Just _ -> pure ()
         _ -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ns
-    tell [Success]
+    out [Success]
     pure (ctx,ord,u,filter (`notElem` ns) ev)
 docmd' (Print ns) (ctx,ord,u,ev) = do
     defs <- mapM (\n -> case getElem n ctx of
         Just d -> pure d
         Nothing -> throwError ("Identifier \"" ++ n ++ "\" is not defined.")) ns
-    tell [PrintCtx defs]
+    out [PrintCtx defs]
     pure (ctx,ord,u,ev)
-docmd' PrintAll (ctx,ord,u,ev) = tell [PrintCtx ctx] >> pure (ctx,ord,u,ev)
-docmd' PrintUniverses (ctx,ord,u,ev) = tell [PrintGraph ord] >> pure (ctx,ord,u,ev)
+docmd' PrintAll (ctx,ord,u,ev) = out [PrintCtx (reverse ctx)] >> pure (ctx,ord,u,ev)
+docmd' PrintUniverses (ctx,ord,u,ev) = out [PrintGraph ord] >> pure (ctx,ord,u,ev)
 docmd' (CheckConstraints cs) (ctx,ord,u,ev) =
-    liftEither (runRes ev u (appConstraints ord cs)) >> tell [Success] >> pure (ctx,ord,u,ev)
+    liftEither (runRes ev u (appConstraints ord cs)) >> out [Success] >> pure (ctx,ord,u,ev)
 docmd' (Redex vs i j) (ctx,ord,u,ev) = do
     vs <- chkHoles (ctx,ord,u,ev) (reverse vs) []
     (r,u) <- liftEither (runRes ev u (inferWithOrderCheck (fmap fst vs) (extCtxWithHoles vs ctx) ord i))
@@ -207,7 +210,7 @@ docmd' (Redex vs i j) (ctx,ord,u,ev) = do
     (r,u) <- liftEither (runRes ev u (checkWithOrderCheck (fmap fst vs) (extCtxWithHoles vs ctx) ord j t))
     ord <- catchHoles r
     (j,u) <- liftEither (runRes ev u (eval (extCtxWithHoles vs ctx) j))
-    tell [DefRedex (fmap fst vs) i j]
+    out [DefRedex (fmap fst vs) i j]
     pure (CtxRedex (fmap fst vs) i j:ctx,ord,u,ev)
 docmd' (MkInductive i) g = doInductive g i
 
@@ -277,7 +280,7 @@ makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
     let rhs = VApp (Unknown ("case_" ++ c)) rhsArgs
     let nomicArgs = reverse $
             fmap (('P':) . show) [0..npar-1] ++ ["P"] ++ fmap ("case_"++) cs ++ fmap (('C':) . show) [0..length st-1]
-    tell [DefRedex [] lhs rhs]
+    out [DefRedex [] lhs rhs]
     pure (CtxRedex nomicArgs lhs rhs:ctx,ord,u,ev)
 
 doInductive :: CommandState -> Inductive -> Cmd CommandState
@@ -312,8 +315,8 @@ doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
         c <- makeCase s nconst nvary n t
         pure (VPi (Abs (Just c) (modifFree (+1) 0 p)))) conc cs
     ctx <- pure (CtxAxiom ("rec_" ++ s) ind:ctx)
-    tell [DefInd i]
-    tell [DefAxiom ("rec_" ++ s) ind]
+    out [DefInd i]
+    out [DefAxiom ("rec_" ++ s) ind]
 
     (ctx,ord,u,ev) <- foldM
         (\g (n,v) -> makeCaseRedex g s (reverse $ fmap fst cs) n (length vrs) (fst (getParams v)) (getArgs (snd (getParams v))))

@@ -215,22 +215,22 @@ elab u ps hs ns (ASTApp f x) = do
     (x,u,ps) <- elab u ps hs ns x
     pure (App f x,u,ps)
 
-holes :: [String]
-holes = [1..] >>= flip replicateM ['A'..'Z']
-
 parse :: UniverseID -> String -> Cmd (Exp,UniverseID)
 parse u = fmap (\(a,b,_)->(a,b)) . elab u holes [] [] <=< parseParExp . fst . tokenize
 
-parseParRedex :: [Name] -> [Var] -> [ParExp] -> Cmd Exp
-parseParRedex ns vs [Tok n] = case indexOf vs (User n) of
-    Just i -> pure (Var i Nothing)
-    Nothing -> pure (if n `elem` ns then Hole n else Free n)
-parseParRedex ns vs (Tok n:es) = foldl App (Free n) <$> mapM (parseParRedex ns vs . ext) es
-parseParRedex _ _ xs = throwError ("Could not parse reducible expression \"" ++ unwords (fmap show xs) ++ "\"")
+parseParRedex :: [Name] -> [Name] -> [Var] -> [ParExp] -> Cmd (Exp,[Name])
+parseParRedex _ (h:hs) _ [Tok "_"] = pure (Hole h,hs)
+parseParRedex ns hs vs [Tok n] = case indexOf vs (User n) of
+    Just i -> pure (Var i Nothing,hs)
+    Nothing -> pure (if n `elem` ns then Hole n else Free n,hs)
+parseParRedex ns hs vs (Tok n:es) = (\(es,hs) -> (foldl App (Free n) es,hs)) <$> foldM (\(es,hs) p -> do
+    (e,hs) <- parseParRedex ns hs vs (ext p)
+    pure (es++[e],hs)) ([],hs) es
+parseParRedex _ _ _ xs = throwError ("Could not parse reducible expression \"" ++ unwords (fmap show xs) ++ "\"")
 
 elabRedexArgs :: UniverseID -> [Name] -> [Name] -> [(Name,AST)] -> Cmd ([(Name,Exp)], UniverseID, [Name])
 elabRedexArgs u ps ns ((n,t):xs) = do
-    (t,u,ps) <- elab u ps ns [] t
+    (t,u,ps) <- elab u (filter (/= n) ps) ns [] t
     fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabRedexArgs u ps (n:ns) xs)
 elabRedexArgs u ps _ [] = pure ([],u,ps)
 
@@ -246,7 +246,7 @@ parseRedex :: UniverseID -> [Name] -> [ParExp] -> [ParExp] -> [ParExp] -> Cmd ((
 parseRedex u ps as rs es = do
     args <- parseArgs as >>= refineArgs
     (args,u,ps) <- elabRedexArgs u ps [] args
-    r <- parseParRedex (fmap fst args) [] rs
+    (r,ps) <- parseParRedex (fmap fst args) ps [] rs
     (e,u,ps) <- parseParExp es >>= elab u ps (fmap fst args) []
     pure ((args, r, e),u,ps)
 
@@ -347,7 +347,7 @@ parseCommands u (x:xs) = do
     pure (cmd:cmds,u)
 parseCommands u [] = pure ([],u)
 
-interpret :: String -> CommandState -> Cmd CommandState
+interpret :: String -> CommandState -> Cmd (Maybe String, CommandState)
 interpret s (ctx,ord,u,ns) = do
     let (toks,r) = tokenize s
     unless (r == "") (throwError
@@ -359,5 +359,7 @@ interpret s (ctx,ord,u,ns) = do
         where
             i st (c:cmds) = do
                 st' <- docmd c st
-                i st' cmds
-            i st [] = pure st
+                case st' of
+                    Right st' -> i st' cmds
+                    Left e -> pure (Just e,st)
+            i st [] = pure (Nothing,st)

@@ -14,13 +14,12 @@ Inductive desc : Type :=
 | `ind× : desc -> desc.
 
 Inductive unit : Type := I : unit.
-Inductive prod (A B: Type) : Type := pair : A -> B -> prod A B.
-Inductive Σ (A: Type) (B: A -> Type) : Type := ∃ : forall (a: A) (X: B a), Σ A B.
+Inductive Σ (A: Type) (B: A -> Type) : Type := pair : forall (a: A) (X: B a), Σ A B.
 
 Transparent rec_desc.
 
 Definition interp := fun (d: desc) (X: Type) =>
-    rec_desc (fun _ => Type) (fun _ p => prod X p) (fun U _ f => Σ U f) unit d.
+    rec_desc (fun _ => Type) (fun _ p => Σ X (fun _ => p)) (fun U _ F => Σ U F) unit d.
 
 Transparent interp.
 
@@ -32,3 +31,19 @@ Axiom con : forall (D: desc), (interp D (μ D)) -> μ D.
 Axiom All : forall (D: desc) (X: Type), (X -> Type) -> (interp D X) -> Type.
 
 Reduction (X: Type) (P: X -> Type) (All `1 X P I) := unit.
+Reduction (X: Type) (P: X -> Type)
+    (U: Type) (F: U -> desc) (F_i: U -> Type) (u: U) (f_i: F_i u)
+    (All (`Σ U F) X P (pair U F_i u f_i)) := All (F u) X P f_i.
+Reduction (X: Type) (P: X -> Type)
+    (D: desc) (x: X) (p: P x)
+    (All (`ind× D) X P (pair X P x p)) := Σ (P x) (fun _ => All D X P p).
+
+Axiom all : forall (D: desc) (X: Type) (P: X -> Type), (forall (x: X), P x) -> forall (xs: interp D X), All D X P xs.
+
+Reduction (X: Type) (P: X -> Type) (p: forall (x: X), P x) (all `1 X P p I) := I.
+Reduction (X: Type) (P: X -> Type) (p: forall (x: X), P x)
+    (U: Type) (F: U -> desc) (F_i: U -> Type) (u: U) (f_i: F_i u)
+    (all (`Σ U F) X P p (pair U F_i u f_i)) := all (F u) X P p f_i.
+Reduction (X: Type) (P: X -> Type) (p: forall (x: X), P x)
+    (D: desc) (x: X)
+    (all (`ind× D) X P p (pair X P x (p x))) := pair _ _ _ _.
