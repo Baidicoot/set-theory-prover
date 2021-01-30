@@ -232,7 +232,7 @@ makeCase s nconst nvary c t = do
             in case a of
             VApp (VFree s') index | s == s' ->
                 let t' = modifFree (+1) 0 t
-                in VPi . Abs (Just a) . VPi $ Abs (Just (VApp (VVar i)
+                in VPi . Abs (Just a) . VPi $ Abs (Just (VApp (VVar (i+1))
                     (drop nconst (fmap (modifFree (+1) 0) index) ++ [VApp (VVar 0) []]))) t'
             _ -> VPi (Abs (Just a) t)) conc (zip [nargs-1,nargs-2..0] subts)
     pure x
