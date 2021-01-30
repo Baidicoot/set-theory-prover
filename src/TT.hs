@@ -59,7 +59,8 @@ showExp ns (Hole p) = "?" ++ p
 showExp ns (Pi Dummy (Abs (Just d) r)) = parens (showExp ns d) ++ " -> " ++ showExp (Dummy:ns) r
 showExp ns (Pi n (Abs (Just d) r)) = "forall (" ++ show n ++ ": " ++ showExp ns d ++ "), " ++ showExp (n:ns) r
 showExp ns (Pi n (Abs Nothing r)) = "forall " ++ show n ++ ", " ++ showExp (n:ns) r
-showExp ns (Var i _) | i >= length ns = show i
+showExp ns (Var i (Just t)) | i >= length ns = "(@" ++ show i ++ ": " ++ showVal ns t ++ ")"
+showExp ns (Var i _) | i >= length ns = '@':show i
 showExp ns (Var i (Just t)) = "(" ++ show (ns !! i) ++ ": " ++ showVal ns t ++ ")"
 showExp ns (Var i _) = show (ns !! i)
 showExp ns (Free n) = n
@@ -288,11 +289,11 @@ ehnf g v = do
 esnf :: Ctx -> Val -> Res Val
 esnf g (VPi (Abs d r)) = do
     r' <- esnf g r
-    d' <- traverse (ehnf g) d
+    d' <- traverse (esnf g) d
     pure (VPi (Abs d' r'))
 esnf g (VLam (Abs d r)) = do
     r' <- esnf g r
-    d' <- traverse (ehnf g) d
+    d' <- traverse (esnf g) d
     pure (VLam (Abs d' r'))
 esnf g v = do
     v' <- reduce g v
@@ -486,7 +487,7 @@ check g (Lam n (Abs t x)) (VPi (Abs (Just d) r)) = do
         _ -> pure ()
     withVar n $ check g (markFree 0 (modifFree (+1) 0 d) x) r
 check g (Hole p) t = foundHole p t
-check g x t = do
+check g x t = trace ("while checking \"" ++ showExp [] x ++ "\" has type \"" ++ showVal [] t ++ "\"") $ do
     xt <- infer g x
     fit g xt t
 

@@ -33,3 +33,7 @@ Inductive Eq (A: Type) : A -> A -> Type :=
 
 Definition transport := fun (A: Type) (P: A -> Type) =>
     rec_Eq A (fun c d _ => (P c) -> (P d)) (fun d (H1: P d) => H1).
+
+Inductive ∃ (A: Type) (B: A -> Type) : Type := exist : forall (a: A) (X: B a), ∃ A B.
+
+Check exist nat (fun x => Eq nat x 0) 0 (Eq_refl nat 0).

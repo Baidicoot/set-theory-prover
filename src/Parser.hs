@@ -183,10 +183,6 @@ indexOf (a:_) b | a == b = Just 0
 indexOf (_:as) a = fmap (+1) (indexOf as a)
 indexOf _ _ = Nothing
 
-nTimes :: Int -> (a -> a) -> a -> a
-nTimes 0 _ x = x
-nTimes n f x = f (nTimes (n-1) f x)
-
 elab :: UniverseID -> [Name] -> [Name] -> [Var] -> AST -> Cmd (Exp,UniverseID,[Name])
 elab u ps _ _ (ASTNat n) = pure (nTimes n (App (Free "S")) (Free "Z"),u,ps)
 elab u ps hs ns (ASTVar v) = case indexOf ns (User v) of
@@ -257,12 +253,12 @@ parseRedex u ps as rs es = do
 elabIndArgs :: UniverseID -> [Name] -> [Name] -> [(Name,AST)] -> Cmd ([(Name,Exp)], UniverseID, [Name])
 elabIndArgs u ps ns ((n,t):xs) = do
     (t,u,ps) <- elab u ps [] (fmap User ns) t
-    fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabRedexArgs u ps (n:ns) xs)
+    fmap (\(xs,u,ps) -> (xs ++ [(n,t)],u,ps)) (elabIndArgs u ps (n:ns) xs)
 elabIndArgs u ps _ [] = pure ([],u,ps)
 
 elabInductive :: UniverseID -> [Name] -> String -> [(Name,AST)] -> AST -> [(String,AST)] -> Cmd (Inductive, UniverseID)
 elabInductive u h s params ty cases = do
-    (args,u,h) <- elabRedexArgs u h [] params
+    (args,u,h) <- elabIndArgs u h [] params
     (indTy,u,h) <- elab u h [] (fmap (User . fst) args) ty
     (cases,u,_) <- foldM (\(cs,u,h) (n,t) -> do
         (t,u,h) <- elab u h [] (fmap (User . fst) args) t

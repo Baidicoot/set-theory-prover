@@ -229,11 +229,12 @@ makeCase s nconst nvary c t = do
     let conc = VApp (VVar nargs) (drop nconst index ++ [term])
     let x = foldl (\t (i,b) ->
             let a = modifFree (+1) i b
-            in case a of
-            VApp (VFree s') index | s == s' ->
+            in case getParams a of
+            (par,VApp (VFree s') index) | s == s' ->
                 let t' = modifFree (+1) 0 t
-                in VPi . Abs (Just a) . VPi $ Abs (Just (VApp (VVar (i+1))
-                    (drop nconst (fmap (modifFree (+1) 0) index) ++ [VApp (VVar 0) []]))) t'
+                in VPi . Abs (Just a) . VPi $ Abs (Just $ forallParams (fmap (modifFree (+1) 0) par) (VApp (VVar (i+length par+1))
+                    (drop nconst (fmap (modifFree (+1) 0) index)
+                    ++ [VApp (VVar (length par)) (fmap (\i -> VApp (VVar i) []) [length par-1,length par-2..0])]))) t'
             _ -> VPi (Abs (Just a) t)) conc (zip [nargs-1,nargs-2..0] subts)
     pure x
 
@@ -243,6 +244,10 @@ getArgs _ = []
 
 substs :: Ctx -> Val -> [Val] -> Res Val
 substs g v = foldM (\v (i,v') -> substVal g i v' v) v . zip [0..]
+
+nTimes :: Int -> (a -> a) -> a -> a
+nTimes 0 _ x = x
+nTimes n f x = f (nTimes (n-1) f x)
 
 makeCaseRedex :: CommandState -> Name -> [Name] -> Name -> Int -> [Val] -> [Val] -> Cmd CommandState
 makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
@@ -259,16 +264,20 @@ makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
     let cases = fmap (\n -> VApp (Unknown ("case_" ++ n)) []) cs
     let lhsArgs = parArgs ++ [prop] ++ cases ++ typeArgs ++ [VApp (VFree c) (reverse consNames)]
     let lhs = VApp (VFree ("rec_" ++ s)) lhsArgs
-    let rhsArgs = foldl (\xs (n,t) -> case t of
-            VApp (VFree s') ts | s == s' ->
+    let rhsArgs = foldl (\xs (n,t) -> case getParams t of
+            (stpar,VApp (VFree s') ts) | s == s' ->
                 let prfTyArgs = drop npar ts
-                    prfArgs = parArgs ++ [prop] ++ cases ++ prfTyArgs ++ [VApp (Unknown n) []]
+                    nstpar = length stpar
+                    prfArgs = parArgs ++ [prop] ++ cases ++ prfTyArgs
+                        ++ [VApp (Unknown n) (fmap (\i -> VApp (VVar i) []) [nstpar-1,nstpar-2..0])]
                     prf = VApp (VFree ("rec_" ++ s)) prfArgs
-                in VApp (Unknown n) []:prf:xs
+                    prfn = nTimes nstpar (VLam . Abs Nothing) prf
+                in VApp (Unknown n) []:prfn:xs
             _ -> VApp (Unknown n) []:xs) [] consTypes
     let rhs = VApp (Unknown ("case_" ++ c)) rhsArgs
     let nomicArgs = reverse $
             fmap (('P':) . show) [0..npar-1] ++ ["P"] ++ fmap ("case_"++) cs ++ fmap (('C':) . show) [0..length st-1]
+    tell [DefRedex [] lhs rhs]
     pure (CtxRedex nomicArgs lhs rhs:ctx,ord,u,ev)
 
 doInductive :: CommandState -> Inductive -> Cmd CommandState
@@ -277,15 +286,15 @@ doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
     (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck [] ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
     ord <- catchHoles r
     (t,u) <- liftEither (runResVars vrs ev (u+1) (eval ctx (marksFree (zip [0..] vs) t) >>= esnf ctx))
-    ctx <- pure (CtxAxiom s (forallParams vs t):ctx)
-
+    let forVs = fmap (\(i,v) -> modifFree (\x->x-i) 0 v) (zip [length vs-1,length vs-2..0] vs)
+    ctx <- pure (CtxAxiom s (forallParams forVs t):ctx)
     (cs,(ctx,ord,u,ev)) <- foldM (\(cs,(ctx,ord,u,ev)) (n,t) -> do
         (r,u) <- liftEither (runResVars vrs ev (u+1) (checkWithOrderCheck [] ctx ord (marksFree (zip [0..] vs) t) (VSet u)))
         ord <- catchHoles r
         (t,u) <- liftEither (runResVars vrs ev (u+1) (eval ctx (marksFree (zip [0..] vs) t) >>= esnf ctx))
-        ctx <- pure (CtxAxiom n (forallParams vs t):ctx)
+        ctx <- pure (CtxAxiom n (forallParams forVs t):ctx)
         pure ((n,t):cs,(ctx,ord,u,ev))) ([],(ctx,ord,u,ev)) cs
-    
+
     let (varyingParams,_) = getParams t
     let nconst = length vs
     let nvary = length varyingParams
@@ -299,7 +308,7 @@ doInductive (ctx,ord,u,ev) i@(Ind s vrs vs t cs) = do
             . VApp (VVar (nvary+1))
             . fmap (\i -> VApp (VVar i) [])
             . reverse $ [0..nvary]
-    ind <- forallParams vs . VPi . Abs (Just prop) <$> foldM (\p (n,t) -> do
+    ind <- forallParams forVs . VPi . Abs (Just prop) <$> foldM (\p (n,t) -> do
         c <- makeCase s nconst nvary n t
         pure (VPi (Abs (Just c) (modifFree (+1) 0 p)))) conc cs
     ctx <- pure (CtxAxiom ("rec_" ++ s) ind:ctx)

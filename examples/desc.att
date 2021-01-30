@@ -1,0 +1,34 @@
+Definition En := Type.
+
+Inductive nat : En :=
+| S : nat -> nat
+| Z : nat.
+
+Inductive tag : nat -> En :=
+| tagO : forall (n: nat), tag (S n)
+| tagS : forall (n: nat), (tag n) -> tag (S n).
+
+Inductive desc : Type :=
+| `1 : desc
+| `Σ : forall (U: Type), (U -> desc) -> desc
+| `ind× : desc -> desc.
+
+Inductive unit : Type := I : unit.
+Inductive prod (A B: Type) : Type := pair : A -> B -> prod A B.
+Inductive Σ (A: Type) (B: A -> Type) : Type := ∃ : forall (a: A) (X: B a), Σ A B.
+
+Transparent rec_desc.
+
+Definition interp := fun (d: desc) (X: Type) =>
+    rec_desc (fun _ => Type) (fun _ p => prod X p) (fun U _ f => Σ U f) unit d.
+
+Transparent interp.
+
+Definition NatD := `Σ (tag 2) (rec_tag (fun _ _ => desc) (fun _ _ => `ind×) (fun _ => `1) 2).
+
+Axiom μ : desc -> Type.
+Axiom con : forall (D: desc), (interp D (μ D)) -> μ D.
+
+Axiom All : forall (D: desc) (X: Type), (X -> Type) -> (interp D X) -> Type.
+
+Reduction (X: Type) (P: X -> Type) (All `1 X P I) := unit.
