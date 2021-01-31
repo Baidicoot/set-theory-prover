@@ -39,13 +39,14 @@ instance Show RedScheme where
     show (DeltaWith ns) = "unfolding [" ++ unwords ns ++ "]"
     show (Match e) = "match \"" ++ showExp [] e ++ "\""
 
-genScheme :: [RedScheme] -> Ctx -> Val -> Res Val
-genScheme (Esnf:xs) g v = esnf g v >>= genScheme xs g
-genScheme (Ehnf:xs) g v = ehnf g v >>= genScheme xs g
-genScheme (Match e:xs) g v = do
-    e' <- eval g e
-    fit g e' v
-    genScheme xs g e'
+genScheme :: [RedScheme] -> CommandState -> Val -> Res Val
+genScheme (Esnf:xs) g@(ctx,_,_,_) v = esnf ctx v >>= genScheme xs g
+genScheme (Ehnf:xs) g@(ctx,_,_,_) v = ehnf ctx v >>= genScheme xs g
+genScheme (Match e:xs) (ctx,ord,u,ev) v = do
+    infer ctx e
+    e' <- eval ctx e
+    fit ctx e' v
+    genScheme xs (ctx,ord,u,ev) e'
 genScheme (_:xs) g v = genScheme xs g v
 genScheme [] _ v = pure v
 
@@ -91,7 +92,7 @@ data CommandOutput
 type Cmd = ExceptT String (Writer [CommandOutput])
 
 trace :: String -> Cmd a -> Cmd a
-trace s r = catchError r (\e -> throwError (e ++ "\n" ++ s))
+trace s r = catchError r (\e -> throwError (e ++ "\n\n" ++ s))
 
 runCmd :: Cmd a -> (Either String a,[CommandOutput])
 runCmd = runWriter . runExceptT
@@ -142,7 +143,7 @@ chkAll g@(ctx,ord,u,ev) (e:es) vs = do
 chkAll g _ vs = pure (vs,g)
 
 extCtxWithHoles :: [(Name,Val)] -> Ctx -> Ctx
-extCtxWithHoles ns ctx = foldr (\(n,v) -> (CtxHoleTy n v:)) ctx ns
+extCtxWithHoles ns ctx = foldr (\(n,v) -> (CtxMetaT n v:)) ctx ns
 
 chkHoles :: CommandState -> [(Name,Exp)] -> [(Name,Val)] -> Cmd [(Name,Val)]
 chkHoles g@(ctx,ord,u,ev) ((n,e):es) vs = do
@@ -176,8 +177,8 @@ docmd' (Eval red e) (ctx,ord,u,ev) = do
     let ds = concatMap (\r -> case r of
             DeltaWith xs -> xs
             _ -> []) red
-    (_,u') <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
-    (x,_) <- liftEither (runRes (ev ++ ds) u' (eval ctx e >>= genScheme red ctx))
+    (_,u) <- liftEither (runRes ev u (inferWithOrderCheck ctx ord e))
+    (x,u) <- liftEither (runRes (ev ++ ds) u (eval ctx e >>= genScheme red (ctx,ord,u,ev)))
     out [Evaluated x]
     pure (ctx,ord,u,ev)
 docmd' (Transparent ns) (ctx,ord,u,ev) = do
@@ -280,7 +281,7 @@ makeCaseRedex (ctx,ord,u,ev) s cs c npar st ty = do
     let rhs = VApp (VMeta ("case_" ++ c)) rhsArgs
     let nomicArgs = reverse $
             fmap (('P':) . show) [0..npar-1] ++ ["P"] ++ fmap ("case_"++) cs ++ fmap (('C':) . show) [0..length st-1]
-    out [DefRedex [] lhs rhs]
+    --out [DefRedex nomicArgs lhs rhs]
     pure (CtxRedex nomicArgs lhs rhs:ctx,ord,u,ev)
 
 doInductive :: CommandState -> Inductive -> Cmd CommandState

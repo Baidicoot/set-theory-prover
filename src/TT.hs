@@ -148,14 +148,14 @@ data CtxElem
     = CtxAxiom Name Val
     | CtxDelta Name Val Val
     | CtxRedex [Name] Val Val
-    | CtxHoleTy Name Val
+    | CtxMetaT Name Val
 
 ctxNames :: Ctx -> [Name]
 ctxNames = concatMap (\x -> case x of
     CtxAxiom n _ -> [n]
     CtxDelta n _ _ -> [n]
     CtxRedex _ _ _ -> []
-    CtxHoleTy _ _ -> [])
+    CtxMetaT _ _ -> [])
 
 getElem :: Name -> Ctx -> Maybe CtxElem
 getElem n (a@(CtxAxiom m _):_) | n == m = Just a
@@ -167,7 +167,7 @@ instance Show CtxElem where
     show (CtxAxiom n t) = "Axiom '" ++ n ++ "' : " ++ show t ++ "."
     show (CtxDelta n t d) = "Definition '" ++ n ++ "' : " ++ show t ++ "\n    := " ++ show d ++ "."
     show (CtxRedex _ u v) = "Reduction (" ++ showVal [] u ++ ")\n    := " ++ showVal [] v ++ "."
-    show (CtxHoleTy n t) = "Placeholder '" ++ n ++ "' : " ++ show t ++ "."
+    show (CtxMetaT n t) = "Metavariable '" ++ n ++ "' : " ++ show t ++ "."
 
     showList xs s = intercalate "\n\n" (fmap show xs) ++ s
 
@@ -176,7 +176,7 @@ type Ctx = [CtxElem]
 typeInCtx :: Name -> Ctx -> Maybe Val
 typeInCtx n (CtxAxiom m t:_) | n == m = Just t
 typeInCtx n (CtxDelta m t _:_) | n == m = Just t
-typeInCtx n (CtxHoleTy m t:_) | n == m = Just t
+typeInCtx n (CtxMetaT m t:_) | n == m = Just t
 typeInCtx n (_:xs) = typeInCtx n xs
 typeInCtx _ [] = Nothing
 
@@ -194,7 +194,7 @@ type EvalCtx = [Name]
 type Res = ExceptT String (RWS ([Var], EvalCtx) ([Constraint],[KernelMessage]) UniverseID)
 
 trace :: String -> Res a -> Res a
-trace s m = catchError m (\e -> throwError (e ++ "\n" ++ s))
+trace s m = catchError m (\e -> throwError (e ++ "\n\n" ++ s))
 
 runRes :: EvalCtx -> UniverseID -> Res a -> Either String (a,UniverseID)
 runRes = runResVars []
@@ -322,6 +322,9 @@ esnf g v = do
 
 type Subst = [(Name,Val)]
 
+modifSubst :: (Int -> Int) -> Int -> Subst -> Subst
+modifSubst f i = fmap (\(n,v) -> (n,modifFree f i v))
+
 applySubst :: Ctx -> Subst -> Val -> Res Val
 applySubst g sub (VApp (VMeta n) vs) | isJust (lookup n sub) = do
     let (Just v) = lookup n sub
@@ -330,11 +333,11 @@ applySubst g sub (VApp (VMeta n) vs) | isJust (lookup n sub) = do
 applySubst g sub (VApp n vs) = unfold g . VApp n =<< mapM (applySubst g sub) vs
 applySubst g sub (VPi (Abs d r)) = do
     d <- mapM (applySubst g sub) d
-    r <- applySubst g sub r
+    r <- applySubst g (modifSubst (+1) 0 sub) r
     pure (VPi (Abs d r))
 applySubst g sub (VLam (Abs d r)) = do
     d <- mapM (applySubst g sub) d
-    r <- applySubst g sub r
+    r <- applySubst g (modifSubst (+1) 0 sub) r
     pure (VLam (Abs d r))
 applySubst _ _ x = pure x
 
@@ -446,8 +449,8 @@ fit g a b = do
                 throwError ("Could not fit type \"" ++ showVal vs a ++ "\" to \"" ++ showVal vs b ++ "\".")
 
 fitAbs :: Ctx -> Abstraction Val -> Abstraction Val -> Res ()
-fitAbs g (Abs (Just a) b) (Abs (Just x) y) = fit g a x >> fit g b y
-fitAbs g (Abs _ a) (Abs _ b) = fit g a b
+fitAbs g (Abs (Just a) b) (Abs (Just x) y) = fit g a x >> withVar Dummy (fit g b y)
+fitAbs g (Abs _ a) (Abs _ b) = withVar Dummy (fit g a b)
 
 markFree :: Int -> Val -> Exp -> Exp
 markFree n x (Var i _) | n == i = Var i (Just x)
@@ -523,9 +526,11 @@ check g (Lam n (Abs t x)) (VPi (Abs (Just d) r)) = do
         _ -> pure ()
     withVar n $ check g (markFree 0 (modifFree (+1) 0 d) x) r
 check g (Hole p) t = foundHole p t
-check g x t = trace ("while checking \"" ++ showExp [] x ++ "\" has type \"" ++ showVal [] t ++ "\"") $ do
-    xt <- infer g x
-    fit g xt t
+check g x t = do
+    vs <- getVars
+    trace ("while checking \"" ++ showExp vs x ++ "\" has type \"" ++ showVal vs t ++ "\"") $ do
+        xt <- infer g x
+        fit g xt t
 
 inferWithOrderCheck :: Ctx -> OrderingGraph -> Exp -> Res (Either [(Name,[Var],Val)] (Val,OrderingGraph))
 inferWithOrderCheck g gr e = do

@@ -59,15 +59,34 @@ language=att
 
 \begin{document}
 \maketitle
-In this document I present the syntax, big-step semantics, and typing rules of ATT.
+In this document I present the syntax, big-step semantics, and typing rules of ATT. Let $a$ and $v$ refer to an infinite set of `parameter symbols'. Then, the ATT grammar can be defined by:
 
 \begin{align*}
+    \tag{Sorts}
     s \bnfdef& \set_n, n \in \nat
-    \\
-    \bb{T} \bnfdef& \fun{v:\bb{T}}{\bb{T}} \alt \for{v : \bb{T}}{\bb{T}} \alt s \alt \bb{T T} \alt \bb{T} : \bb{T} \alt v
+    \\ \tag{Neutral Terms}
+    \bb{N} \bnfdef& a \bar{\bb{V}}
+    \\ \tag{Values}
+    \bb{V} \bnfdef& \fun{x: \bb{V}} \bb{V} \alt \for{x: \bb{V}} \bb{V} \alt s \alt v \alt \bb{N}
+    \\ \tag{Expressions}
+    \bb{T} \bnfdef& \fun{x:\bb{T}}{\bb{T}} \alt \for{x : \bb{T}} \bb{T} \alt s \alt v \alt \bb{T T} \alt \bb{T} : \bb{T}
 \end{align*}
 
 \section{Core ATT}
+
+Core ATT is specified by a set of mutually defined rules:
+\begin{align*}
+    \tag{Typing}
+    \Gamma \vdash& \bb{T} : \bb{V}
+    \\ \tag{Evaluation}
+    \Gamma \vdash& \bb{T} \evals \bb{V}
+    \\ \tag{Subtyping}
+    \Gamma \vdash& \bb{V} \subseteq \bb{V}
+    \\ \tag{Conversion}
+    \Gamma \vdash& \bb{V} \triangleright \bb{V}
+    \\ \tag{Equivalence}
+    \Gamma \vdash& \bb{V} =_{\alpha \delta \eta \rho} \bb{V}
+\end{align*} 
 
 \subsection{Environments}
 
@@ -79,21 +98,23 @@ An environment (denoted by $\Gamma$) in ATT is a set of rules containing definit
         {\cdot \vdash \mathrm{Valid}}
     \and \infer
         {\Gamma \vdash e : T
-        \\ x \notin \Gamma
+        \\ v \notin \Gamma
         \\ \Gamma \vdash \mathrm{Valid}}
-        {\Gamma, x : T := e \vdash \mathrm{Valid}}
+        {\Gamma, v : T := e \vdash \mathrm{Valid}}
     \and \infer
-        {\Gamma \vdash T
+        {\Gamma \vdash e : T
+        \\ \Gamma \vdash e \evals S
         \\ a \notin \Gamma
         \\ \Gamma \vdash \mathrm{Valid}}
-        {\Gamma, a : T \vdash \mathrm{Valid}}
+        {\Gamma, a : S \vdash \mathrm{Valid}}
     \and \infer
-        {(a : S) \in \Gamma
-        \\ \Gamma, \overline{x : X} \vdash a e_0 \dots e_m : T
-        \\ \Gamma, \overline{x : X} \vdash e : T
+        {\Gamma, \overline{x : X} \vdash e : T
+        \\ \Gamma, \overline{x : X} \vdash e \evals a v_0 \dots v_m
+        \\ \Gamma, \overline{x : X} \vdash f : T
+        \\ \Gamma, \overline{x : X} \vdash f \evals g
         \\ \Gamma \vdash \mathrm{Valid}
         \\ \Gamma, \overline{x : X} \vdash \mathrm{Valid}}
-        {\Gamma, [\overline{x : X}] a e_0 \dots e_m \mapsto e \vdash \mathrm{Valid}}
+        {\Gamma, [\overline{x : X}] a v_0 \dots v_m \mapsto g \vdash \mathrm{Valid}}
 \end{mathpar}
 
 For following sections I leave the $\Gamma \vdash \mathrm{Valid}$ constraint implicit.
@@ -139,6 +160,8 @@ For following sections I leave the $\Gamma \vdash \mathrm{Valid}$ constraint imp
 
 \subsubsection{Conversions and Subtyping}
 
+As conversion and subtyping is conducted between values (i.e. $\beta$-normal forms), there is no $\beta$-conversion rule; instead, we have the $\Gamma \vdash \bb{T} \evals \bb{V}$ evaluation rule.
+
 $\delta$-conversion corresponds to the 'unfolding' of definitions in the environment:
 
 \begin{mathpar}
@@ -156,52 +179,49 @@ $\rho$-conversion corresponds to the application of $\rho$-reduction rules in th
         {\Gamma \vdash (a t_0 \dots t_m)[\overline{x \mapsto t}] \triangleright_\rho e[\overline{x \mapsto t}]}
 \end{mathpar}
 
-And finally the $\alpha$, $\beta$, and $\eta$-conversion rules correspond to the normal $\alpha$, and $\beta$-reduction, and $\eta$-expansion rules of the $\lambda$-calculus:
+And finally the $\alpha$ and $\eta$-conversion rules correspond to the normal $\alpha$-equivalence and $\eta$-expansion rules of the $\lambda$-calculus:
 
 \begin{mathpar}
     \and \infer
-        {\Gamma \vdash x \evals y}
-        {\Gamma \vdash x \triangleright_\beta y}
+        {\Gamma \vdash x =_\alpha y}
+        {\Gamma \vdash x \triangleright_\alpha y}
     \and \infer
         {\Gamma \vdash f : \for{x: D}R}
         {\Gamma \vdash f \triangleright_\eta \fun{x: D} f x}
 \end{mathpar}
 
-The convertability relation $=_{\alpha \beta \delta \eta \rho}$ is the transitive, reflexive, closure of $=_\alpha \cup \triangleright_\beta \cup \triangleright_\delta \cup \triangleright_\eta \cup \triangleright_\rho$, and relates all convertable terms:
+The convertability relation $=_{\alpha \delta \eta \rho}$ is the transitive, reflexive, closure of $=_\alpha \cup \triangleright_\delta \cup \triangleright_\eta \cup \triangleright_\rho$, and relates all convertable terms:
 
 \begin{mathpar}
     \infer
-        {\Gamma \vdash x =_\alpha y}
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
-    \and \infer
-        {\Gamma \vdash x \triangleright_\beta y}
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
-    \and \infer
+        {\Gamma \vdash x \triangleright_\alpha y}
+        {\Gamma \vdash x =_{\alpha \delta \eta \rho} y}
+    \infer
         {\Gamma \vdash x \triangleright_\delta y}
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash x =_{\alpha \delta \eta \rho} y}
     \and \infer
         {\Gamma \vdash x \triangleright_\eta y}
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash x =_{\alpha \delta \eta \rho} y}
     \and \infer
         {\Gamma \vdash x \triangleright_\rho y}
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash x =_{\alpha \delta \eta \rho} y}
     \and \infer
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y}
-        {\Gamma \vdash y =_{\alpha \beta \delta \eta \rho} x}
+        {\Gamma \vdash x =_{\alpha \delta \eta \rho} y}
+        {\Gamma \vdash y =_{\alpha \delta \eta \rho} x}
     \and \infer
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} y
-        \\ \Gamma \vdash y =_{\alpha \beta \delta \eta \rho} z}
-        {\Gamma \vdash x =_{\alpha \beta \delta \eta \rho} z}
+        {\Gamma \vdash x =_{\alpha \delta \eta \rho} y
+        \\ \Gamma \vdash y =_{\alpha \delta \eta \rho} z}
+        {\Gamma \vdash x =_{\alpha \delta \eta \rho} z}
 \end{mathpar}
 
-If two terms are $\alpha \beta \delta \eta \rho$-convertable, then they are, for all intents and purposes, equivalent, and therefore subtypes of each other by reflexivity.
+If two terms are $\alpha \delta \eta \rho$-convertable, then they are, for all intents and purposes, equivalent, and therefore subtypes of each other by reflexivity.
 
 \begin{mathpar}
     \infer
-        {\Gamma \vdash x \triangleright_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash x \triangleright_{\alpha \delta \eta \rho} y}
         {\Gamma \vdash x \subseteq y}
     \and \infer
-        {\Gamma \vdash x \triangleright_{\alpha \beta \delta \eta \rho} y}
+        {\Gamma \vdash x \triangleright_{\alpha \delta \eta \rho} y}
         {\Gamma \vdash y \subseteq x}
     \and \infer
         {i \geq j}
