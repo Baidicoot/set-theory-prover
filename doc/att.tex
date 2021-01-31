@@ -64,19 +64,25 @@ In this document I present the syntax, big-step semantics, and typing rules of A
 \begin{align*}
     \tag{Sorts}
     s \bnfdef& \set_n, n \in \nat
+    \\ \tag{Reducible Expressions}
+    \bb{R} \bnfdef& a \overline{\bb{R}}
     \\ \tag{Neutral Terms}
-    \bb{N} \bnfdef& a \bar{\bb{V}}
+    \bb{N} \bnfdef& a \overline{\bb{V}}
     \\ \tag{Values}
     \bb{V} \bnfdef& \fun{x: \bb{V}} \bb{V} \alt \for{x: \bb{V}} \bb{V} \alt s \alt v \alt \bb{N}
     \\ \tag{Expressions}
     \bb{T} \bnfdef& \fun{x:\bb{T}}{\bb{T}} \alt \for{x : \bb{T}} \bb{T} \alt s \alt v \alt \bb{T T} \alt \bb{T} : \bb{T}
 \end{align*}
 
+Note that reducible expressions $\bb{R}$ are a subset of values $\bb{V}$, and are simply `values without binders'; therefore, we use the same operations such as substitution $\bb{V}[\overline{x \mapsto \bb{V}}]$ on reducible expressions as we do on values, and indeed treat reducible expressions as values, in an effort to syntactically simplify the rules below.
+
 \section{Core ATT}
 
 Core ATT is specified by a set of mutually defined rules:
 \begin{align*}
-    \tag{Typing}
+    \tag{Context Validity}
+    \Gamma \vdash& \mathrm{Valid}
+    \\ \tag{Typing}
     \Gamma \vdash& \bb{T} : \bb{V}
     \\ \tag{Evaluation}
     \Gamma \vdash& \bb{T} \evals \bb{V}
@@ -86,11 +92,11 @@ Core ATT is specified by a set of mutually defined rules:
     \Gamma \vdash& \bb{V} \triangleright \bb{V}
     \\ \tag{Equivalence}
     \Gamma \vdash& \bb{V} =_{\alpha \delta \eta \rho} \bb{V}
-\end{align*} 
+\end{align*}
 
-\subsection{Environments}
+\subsection{Contexts}
 
-An environment (denoted by $\Gamma$) in ATT is a set of rules containing definitions, reductions, and type annotations. I use the predicate $\Gamma \vdash \mathrm{Valid}$ to mean a well-formed environment, as created with the inference rules (plus the usual rules of weakening, contraction, and so on):
+A context (denoted by $\Gamma$) in ATT is a set of rules containing definitions, reductions, and type annotations. I use the predicate $\Gamma \vdash \mathrm{Valid}$ to mean a well-formed context, as created with the inference rules (plus the usual rules of weakening, contraction, and so on). Contexts contain parameter annotations $v : \bb{V}$, definitions $v : \bb{V} := \bb{V}$, and rho-reductions $[\overline{v : \bb{V}}] \bb{R} \mapsto \bb{V}$.
 
 \begin{mathpar}
     \infer
@@ -98,9 +104,10 @@ An environment (denoted by $\Gamma$) in ATT is a set of rules containing definit
         {\cdot \vdash \mathrm{Valid}}
     \and \infer
         {\Gamma \vdash e : T
+        \\ \Gamma \vdash e \evals e'
         \\ v \notin \Gamma
         \\ \Gamma \vdash \mathrm{Valid}}
-        {\Gamma, v : T := e \vdash \mathrm{Valid}}
+        {\Gamma, v : T := e' \vdash \mathrm{Valid}}
     \and \infer
         {\Gamma \vdash e : T
         \\ \Gamma \vdash e \evals S
@@ -109,12 +116,13 @@ An environment (denoted by $\Gamma$) in ATT is a set of rules containing definit
         {\Gamma, a : S \vdash \mathrm{Valid}}
     \and \infer
         {\Gamma, \overline{x : X} \vdash e : T
-        \\ \Gamma, \overline{x : X} \vdash e \evals a v_0 \dots v_m
+        \\ \Gamma, \overline{x : X} \vdash e \evals r
+        \\ r \in \bb{R}
         \\ \Gamma, \overline{x : X} \vdash f : T
         \\ \Gamma, \overline{x : X} \vdash f \evals g
         \\ \Gamma \vdash \mathrm{Valid}
         \\ \Gamma, \overline{x : X} \vdash \mathrm{Valid}}
-        {\Gamma, [\overline{x : X}] a v_0 \dots v_m \mapsto g \vdash \mathrm{Valid}}
+        {\Gamma, [\overline{x : X}] r \mapsto g \vdash \mathrm{Valid}}
 \end{mathpar}
 
 For following sections I leave the $\Gamma \vdash \mathrm{Valid}$ constraint implicit.
@@ -162,7 +170,7 @@ For following sections I leave the $\Gamma \vdash \mathrm{Valid}$ constraint imp
 
 As conversion and subtyping is conducted between values (i.e. $\beta$-normal forms), there is no $\beta$-conversion rule; instead, we have the $\Gamma \vdash \bb{T} \evals \bb{V}$ evaluation rule.
 
-$\delta$-conversion corresponds to the 'unfolding' of definitions in the environment:
+$\delta$-conversion corresponds to the 'unfolding' of definitions in the context:
 
 \begin{mathpar}
     \infer
@@ -170,7 +178,7 @@ $\delta$-conversion corresponds to the 'unfolding' of definitions in the environ
         {\Gamma \vdash x \triangleright_\delta e}
 \end{mathpar}
 
-$\rho$-conversion corresponds to the application of $\rho$-reduction rules in the environment:
+$\rho$-conversion corresponds to the application of $\rho$-reduction rules in the context:
 
 \begin{mathpar}
     \and \infer
@@ -268,17 +276,17 @@ If two terms are $\alpha \delta \eta \rho$-convertable, then they are, for all i
 
 To interact with the ATT system, you use the \emph{vernacular} interface, a command-oriented 'programming language' supporting a number of operations.
 
-One can use the \texttt{Definition} command to add a $\delta$-expansion for a name to the environment:
+One can use the \texttt{Definition} command to add a $\delta$-expansion for a name to the context:
 \begin{lstlisting}
 Definition id := fun (X: Type) (x: X) => x.
 \end{lstlisting}
 
-The \texttt{Axiom} command adds top-level parameters to the environment:
+The \texttt{Axiom} command adds top-level parameters to the context:
 \begin{lstlisting}
 Axiom false : forall (X: Type), x.
 \end{lstlisting}
 
-The \texttt{Reduction} command adds $\rho$-reductions to the environment (note that these are entirely unrestricted, and therefore break many metatheoretic properties when abused):
+The \texttt{Reduction} command adds $\rho$-reductions to the context (note that these are entirely unrestricted, and therefore break many metatheoretic properties when abused):
 \begin{lstlisting}
 Axiom Mu : forall (A: Type), (A -> A) -> A.
 Reduction (A: Type) (f: A -> A) (Mu A f) := f (Mu A f).
@@ -311,7 +319,7 @@ Reduction
 \end{lstlisting}
 Naturals in the source are elaborated to their inductive form; i.e. \texttt{3} would become \texttt{S (S (S Z))}.
 
-The \texttt{Print} command can be used to display the definition of multiple names in the environment:
+The \texttt{Print} command can be used to display the definition of multiple names in the context:
 \begin{lstlisting}
 Print id false.
 Print All.
