@@ -23,6 +23,7 @@ Definition interp := fun (d: desc) (X: Type) =>
 
 Definition NatD := `Σ (tag 2) (rec_tag (fun _ _ => desc) (fun _ _ => `ind×) (fun _ => `1) 2).
 
+(* μ/con does not satisfy the positivity check *)
 Axiom μ : desc -> Type.
 Axiom con : forall (D: desc), (interp D (μ D)) -> μ D.
 
@@ -32,3 +33,21 @@ Inductive All (X: Type) (P: X -> Type) : forall (D: desc), (interp D X) -> Type 
     forall (x: X), (P x) -> All X P (`ind× D) (pair X (fun _ => interp D X) x st)
 | all_Σ : forall (U: Type) (F: U -> desc) (u: U) (st: interp (F u) X),
     (All X P (F u) st) -> All X P (`Σ U F) (pair U (fun u => interp (F u) X) u st).
+
+Definition all := fun (X: Type) (P: X -> Type) (p: forall (x: X), P x) (D: desc) (d: interp D X) =>
+    rec_desc (fun D => forall (d: interp D X), All X P D d)
+        (fun ST p_st d => rec_Σ X (fun _ => interp ST X)
+            (fun d => All X P (`ind× ST) d) (fun x st => all_ind× X P ST st (p_st st) x (p x)) d)
+        (fun U F f d => rec_Σ U (fun u => interp (F u) X)
+            (fun d => All X P (`Σ U F) d) (fun u st => all_Σ X P U F u st (f u st)) d)
+        (fun (a: unit) => rec_unit (fun a => All X P `1 a) (all_1 X P) a)
+        D d.
+
+Axiom ind : forall (D: desc) (P: (μ D) -> Type),
+    (forall (d: interp D (μ D)), (All (μ D) P D d) -> P (con D d)) ->
+        forall (x: μ D), P x.
+
+Reduction (D: desc) (P: (μ D) -> Type)
+    (m: forall (d: interp D (μ D)), (All (μ D) P D d) -> P (con D d))
+    (d: interp D (μ D))
+    (ind D P m (con D d)) := m d (all (μ D) P (ind D P m) D d).
