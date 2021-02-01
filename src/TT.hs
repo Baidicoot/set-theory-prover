@@ -254,7 +254,7 @@ substVal :: Ctx -> Int -> Val -> Val -> Res Val
 substVal g n x e@(VApp (VVar i) xs) | i == n = do
     xs' <- mapM (substVal g n x) xs
     foldM (evalApp g) x xs'
-substVal g n x (VApp i xs) = unfold g . VApp i =<< mapM (substVal g n x) xs
+substVal g n x (VApp i xs) = unfoldHead g . VApp i =<< mapM (substVal g n x) xs
 substVal g n x (VLam abs) = VLam <$> substValAbs g n x abs
 substVal g n x (VPi abs) = VPi <$> substValAbs g n x abs
 substVal g n x (VSet i) = pure (VSet i)
@@ -267,7 +267,7 @@ evalAbs g (Abs d r) = do
 
 eval :: Ctx -> Exp -> Res Val
 eval g (Var i _) = pure (VApp (VVar i) [])
-eval g (Free n) = unfold g (VApp (VFree n) [])
+eval g (Free n) = unfoldHead g (VApp (VFree n) [])
 eval g (Ann x t) = eval g x
 eval g (Set i) = pure (VSet i)
 eval g (Pi n abs) = VPi <$> evalAbs g abs
@@ -280,13 +280,13 @@ eval g (Meta p) = pure (VApp (VMeta p) [])
 eval g (Hole p) = pure (VApp (VHole p) [])
 
 evalApp :: Ctx -> Val -> Val -> Res Val
-evalApp g (VApp n vs) v = unfold g (VApp n (vs ++ [v]))
+evalApp g (VApp n vs) v = unfoldHead g (VApp n (vs ++ [v]))
 evalApp g (VLam (Abs _ x)) v = modifFree (\x->x-1) 0 <$> substVal g 0 (modifFree (+1) 0 v) x
 evalApp g (VPi (Abs _ x)) v = modifFree (\x->x-1) 0 <$> substVal g 0 (modifFree (+1) 0 v) x
 evalApp _ f x = error ("CRITICAL ERROR (this should not occur): non-function application of " ++ show f ++ " to " ++ show x)
 
-unfold :: Ctx -> Val -> Res Val
-unfold g (VApp (VFree n) vs) = do
+unfoldHead :: Ctx -> Val -> Res Val
+unfoldHead g (VApp (VFree n) vs) = do
     us <- getEvalCtx
     if n `elem` us then do
         v' <- reduce g (VApp (VFree n) vs)
@@ -294,7 +294,28 @@ unfold g (VApp (VFree n) vs) = do
             Just v -> pure v
             Nothing -> pure (VApp (VFree n) vs)
     else pure (VApp (VFree n) vs)
-unfold _ x = pure x
+unfoldHead _ x = pure x
+
+unfold :: Ctx -> Val -> Res Val
+unfold g (VApp (VFree n) vs) = do
+    vs <- mapM (unfold g) vs
+    us <- getEvalCtx
+    if n `elem` us then do
+        v' <- reduce g (VApp (VFree n) vs)
+        case v' of
+            Just v -> pure v
+            Nothing -> pure (VApp (VFree n) vs)
+    else pure (VApp (VFree n) vs)
+unfold g (VApp n vs) = VApp n <$> mapM (unfold g) vs
+unfold g (VLam (Abs d r)) = do
+    d <- mapM (unfold g) d
+    r <- unfold g r
+    pure (VLam (Abs d r))
+unfold g (VPi (Abs d r)) = do
+    d <- mapM (unfold g) d
+    r <- unfold g r
+    pure (VPi (Abs d r))
+unfold _ (VSet i) = pure (VSet i)
 
 -- force reduction to expanded-head normal form
 ehnf :: Ctx -> Val -> Res Val
@@ -330,7 +351,7 @@ applySubst g sub (VApp (VMeta n) vs) | isJust (lookup n sub) = do
     let (Just v) = lookup n sub
     vs <- mapM (applySubst g sub) vs
     foldM (evalApp g) v vs
-applySubst g sub (VApp n vs) = unfold g . VApp n =<< mapM (applySubst g sub) vs
+applySubst g sub (VApp n vs) = unfoldHead g . VApp n =<< mapM (applySubst g sub) vs
 applySubst g sub (VPi (Abs d r)) = do
     d <- mapM (applySubst g sub) d
     r <- applySubst g (modifSubst (+1) 0 sub) r
@@ -408,8 +429,8 @@ reduce :: Ctx -> Val -> Res (Maybe Val)
 reduce g v = do
     r <- rhoReduce g v g
     case r of
-        Nothing -> deltaReduce g v
-        Just r -> pure (Just r)
+        Nothing -> deltaReduce g v >>= mapM (unfold g)
+        Just r -> Just <$> unfold g r
 
 fit :: Ctx -> Val -> Val -> Res ()
 fit g (VApp (VHole _) _) _ = pure ()
