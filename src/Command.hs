@@ -224,10 +224,13 @@ getParams x = ([],x)
 
 makeCase :: Name -> Int -> Int -> Name -> Val -> Cmd Val
 makeCase s nconst nvary c t = do
-    (subts,index) <- case getParams t of
+    (subts,stratIndex) <- case getParams t of
         (subts,VApp (VFree t) index) | s == t -> pure (subts,index)
         _ -> throwError ("Constructor type of '" ++ c ++ "' must be '" ++ s ++ "'")
     let nargs = length subts
+    out [Debug . show $ reverse stratIndex]
+    let index = reverse $ zipWith (\i -> modifFree (+i) 0) [0..] stratIndex
+    out [Debug $ show index]
     let term = VApp (VFree c) . fmap (\i -> VApp (VVar i) []) . reverse $
             [0..nargs-1] ++ [nargs+1..nconst+nargs]
     let conc = VApp (VVar nargs) (drop nconst index ++ [term])
@@ -240,6 +243,7 @@ makeCase s nconst nvary c t = do
                     (drop nconst (fmap (modifFree (+1) 0) index)
                     ++ [VApp (VVar (length par)) (fmap (\i -> VApp (VVar i) []) [length par-1,length par-2..0])]))) t'
             _ -> VPi (Abs (Just a) t)) conc (zip [nargs-1,nargs-2..0] subts)
+    out [Debug $ show x]
     pure x
 
 getArgs :: Val -> [Val]

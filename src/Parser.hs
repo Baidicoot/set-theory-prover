@@ -33,6 +33,8 @@ isTokChar '(' = False
 isTokChar ')' = False
 isTokChar ':' = False
 isTokChar '.' = False
+isTokChar 'λ' = False
+isTokChar 'Π' = False
 isTokChar c = not (isSpace c)
 
 eatComments :: Int -> String -> String
@@ -56,6 +58,12 @@ tokenize (',':xs) =
 tokenize ('.':xs) =
     let (ps,xs') = tokenize xs
     in (Tok ".":ps,xs')
+tokenize ('λ':xs) =
+    let (ps,xs') = tokenize xs
+    in (Tok "fun":ps,xs')
+tokenize ('Π':xs) =
+    let (ps,xs') = tokenize xs
+    in (Tok "forall":ps,xs')
 tokenize (':':'=':xs) =
     let (ps,xs') = tokenize xs
     in (Tok ":=":ps,xs')

@@ -28,11 +28,13 @@ Inductive ShallowTree (L R: Type) : nat -> Type :=
 | rightLeaf : forall (n: nat), R -> ShallowTree L R n
 | branch : forall (n: nat), (ShallowTree L R n) -> (ShallowTree L R n) -> ShallowTree L R (S n).
 
-Inductive Eq (A: Type) : A -> A -> Type :=
-| Eq_refl : forall (x: A), Eq A x x.
+Inductive Eq (A: Type) (x: A) : A -> Type :=
+| Eq_refl : Eq A x x.
 
-Definition transport := fun (A: Type) (P: A -> Type) =>
-    rec_Eq A (fun c d _ => (P c) -> (P d)) (fun d (H1: P d) => H1).
+Check rec_Eq.
+
+Definition transport := fun (A: Type) (P: A -> Type) (x: A) =>
+    rec_Eq A x (fun a _ => (P x) -> P a) (fun Px => Px).
 
 Inductive ∃ (A: Type) (B: A -> Type) : Type := exist : forall (a: A) (X: B a), ∃ A B.
 
