@@ -1,4 +1,4 @@
-# Revision history for dtt
+# Revision history for set-theory-prover
 
 ## 0.1.0.0 -- YYYY-mm-dd
 
