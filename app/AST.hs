@@ -2,12 +2,14 @@ module AST where
 
 import qualified Data.Text as T
 
+type Name = T.Text
+
 data AST
     = Ann AST AST
     | Nat Int
     | Prop
     | Hole
-    | Forall T.Text (Maybe AST) AST
-    | Var T.Text
+    | Forall Name (Maybe AST) AST
+    | Var Name
     | App AST AST
-    | Lam T.Text (Maybe AST) AST
+    | Lam Name (Maybe AST) AST
