@@ -30,20 +30,20 @@ Proof:
     a proof consists of a collection of axioms connected using elimination rules
 -}
 
-type Index = Int
 type Name = T.Text
 
 data Term
-    = Lam Term
-    | Let Term Term
+    = Lam Name Term
+    | Let Name Term Term
     | App Term Term
-    | Var Index
-    | ConstTerm Name
+    | Var Name
+    deriving(Eq)
 
 data Monotype
     = Arr Monotype Monotype
     | TyVar Name
     | ConstTy Name
+    deriving(Eq)
 
 data Polytype = Polytype (S.Set Name) Monotype
 

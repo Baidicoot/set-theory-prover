@@ -1,5 +1,6 @@
 module Main where
 
+{-
 import Command (CommandState,emptyState,runCmd)
 import Parser (interpret,trim)
 import System.IO
@@ -43,3 +44,7 @@ repl files state = do
 
 main :: IO ()
 main = newIORef emptyState >>= repl []
+-}
+
+main :: IO ()
+main = pure ()
