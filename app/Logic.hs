@@ -7,6 +7,8 @@ import qualified Data.Set as S
 {-
 Logic.hs - DATATYPES
 ====================
+NEW CHANGES: MERGE PROP AND TERM
+
 Term:
     for set theories, includes sets and higher-order functions on sets
     valid terms are those valid in HM type systems
