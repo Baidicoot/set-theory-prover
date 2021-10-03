@@ -1,0 +1,9 @@
+Type 𝕌.
+Object empty : 𝕌.
+Object image : (𝕌 → 𝕌 → 𝕌 → ℙ) → 𝕌 → 𝕌.
+Axiom image_prop :
+    ∀A : 𝕌, (∀x : 𝕌 ∈ A, ∃!y : 𝕌, ϕ x y A)
+    → (∀y : 𝕌, (y ∈ image ϕ A) ↔ (∃x : 𝕌, ϕ x y A)).
+Object comp : (𝕌 → 𝕌 → ℙ) → 𝕌 → 𝕌.
+Axiom comp_prop :
+    ∀A : 𝕌, ∀x : 𝕌, (x ∈ comp ϕ A) ↔ ((x ∈ A) ∧ (ϕ x A)).
