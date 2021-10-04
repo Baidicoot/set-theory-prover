@@ -35,28 +35,26 @@ Proof:
 type Name = T.Text
 
 data Term
-    = Lam Name Term
+    = Lam Name Monotype Term
     | Let Name Term Term
     | App Term Term
     | Var Name
+    | Imp Term Term
+    | Forall Name Monotype Term
     deriving(Eq)
 
 data Monotype
     = Arr Monotype Monotype
     | TyVar Name
     | ConstTy Name
+    | Prop
     deriving(Eq)
 
-data Polytype = Polytype (S.Set Name) Monotype
-
-data Prop
-    = Imp Prop Prop
-    | Forall Polytype Prop
-    | Eq Term Term
-    | Conn Name [Prop] [Term]
+data Polytype
+    = Polytype (S.Set Name) Monotype
+    deriving(Eq)
 
 data Proof
     = ModPon Proof Proof
     | UniElim Proof Term
-    | Subst Proof Proof
     | Axiom Name

@@ -64,6 +64,21 @@ instance Substitutable TypingCtx where
     subst s ctx = fmap (subst s) ctx
     free ctx = S.unions (M.elems $ fmap free ctx)
 
+instance Substitutable Term where
+    subst s (Lam v t e) = Lam v (subst s t) (subst s e)
+    subst s (Let v t e) = Let v (subst s t) (subst s e)
+    subst s (App f x) = App (subst s f) (subst s x)
+    subst s (Imp a b) = Imp (subst s a) (subst s b)
+    subst s (Forall v t e) = Forall v (subst s t) (subst s e)
+    subst _ x = x
+
+    free (Lam _ t e) = free t `S.union` free e
+    free (Let _ a b) = free a `S.union` free b
+    free (App a b) = free a `S.union` free b
+    free (Imp a b) = free a `S.union` free b
+    free (Forall _ t e) = free t `S.union` free e
+    free _ = S.empty
+
 instantiate :: Polytype -> Infer Monotype
 instantiate (Polytype v t) = do
     s <- M.fromList <$> mapM (\n -> ((,) n . TyVar) <$> fresh) (S.toList v)
@@ -92,8 +107,7 @@ unify x y | x == y = pure M.empty
 unify x y = throwError (UnificationFail x y)
 
 infer :: TypingCtx -> Term -> Infer (Subst, Monotype)
-infer ctx (Lam v m) = do
-    tv <- fmap TyVar fresh
+infer ctx (Lam v tv m) = do
     (s, t) <- infer (M.insert v (Polytype S.empty tv) ctx) m
     pure (s, Arr (subst s tv) t)
 infer ctx (Var v) = case M.lookup v ctx of
@@ -111,3 +125,13 @@ infer ctx (App f x) = do
     (sf, tf) <- infer ctx f
     s <- unify tf (Arr tx tv)
     pure (composeSubst (composeSubst s sf) sx, subst s tv)
+infer ctx (Imp a b) = do
+    (sa, ta) <- infer ctx a
+    sau <- unify ta Prop
+    (sb, tb) <- infer ctx b
+    sbu <- unify tb Prop
+    pure (composeSubst (composeSubst sa sau) (composeSubst sb sbu), Prop)
+infer ctx (Forall v tv m) = do
+    (s, t) <- infer (M.insert v (Polytype S.empty tv) ctx) m
+    su <- unify t Prop
+    pure (composeSubst s su, Prop)
