@@ -58,3 +58,4 @@ data Proof
     = ModPon Proof Proof
     | UniElim Proof Term
     | Axiom Name
+    | Hole

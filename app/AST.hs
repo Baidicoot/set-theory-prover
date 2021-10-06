@@ -4,6 +4,34 @@ import qualified Data.Text as T
 
 type Name = T.Text
 
+{-
+SYNTAX:
+
+<monotype> ::=
+    | <var>
+    | <monotype> → <monotype>
+    | ℙ
+
+<polytype> ::=
+    | ∀ <var>* , <monotype>
+
+<term> ::=
+    | <var>
+    | let <var> := <term> in <term>
+    | let <var> : <polytype> := <term> in <term>
+    | λ <var> , <term>
+    | ∀ <var> , <term>
+    | <term> ⟹ <term>
+
+<proof> ::=
+    | <var>
+    | mod_pon <proof> <proof>
+    | hole
+-}
+
+data Term
+    = Forall Name (Maybe Type)
+
 data AST
     = Ann AST AST
     | Nat Int
