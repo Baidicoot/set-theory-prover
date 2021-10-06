@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Kernel.Subst where
 
 import qualified Data.Map as M
@@ -8,11 +9,13 @@ import Control.Monad
 import Control.Monad.State
 import Control.Monad.Except
 
+import Kernel.Types
+
 type Subst = M.Map Name
 
-composeSubst :: (Subst a -> a -> a) Subst a -> Subst a -> Subst a
-composeSubst subst f g = fmap (subst f) g `M.union` f
+composeSubst :: Substitutable a a => Subst a -> Subst a -> Subst a
+composeSubst f g = fmap (subst f) g `M.union` f
 
 class Substitutable a b where
-    subst :: Subst a -> a -> a
-    free :: a -> S.Set Name
+    subst :: Subst a -> b -> b
+    free :: b -> S.Set Name

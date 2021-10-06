@@ -28,10 +28,11 @@ executable set-theory-prover
 
     -- Modules included in this executable, other than Main.
     other-modules:
-        Logic,
-        Infer,
-        Parser,
-        Tokenize
+        Kernel.Subst,
+        Kernel.Eval,
+        Kernel.Infer,
+        Kernel.Check,
+        Kernel.Types
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

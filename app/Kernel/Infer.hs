@@ -1,4 +1,8 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Infer where
 
 import qualified Data.Map as M
@@ -8,7 +12,8 @@ import Control.Monad
 import Control.Monad.State
 import Control.Monad.Except
 
-import Logic
+import Kernel.Types
+import Kernel.Subst
 
 {-
 Infer.hs - INFERENCE FOR THE OBJECT LANGUAGE
@@ -17,18 +22,14 @@ Basically just Hindley-Milner.
 Adapted from http://dev.stephendiehl.com/fun/006_hindley_milner.html
 -}
 
-type Subst = M.Map Name Monotype
-type TypingCtx = M.Map Name Polytype
-
-names :: [Name]
-names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
-
 data TypeError
     = InfiniteType Name Monotype
     | UnificationFail Monotype Monotype
     | NotInContext Name
 
 type Infer = ExceptT TypeError (State [Name])
+type MonoSubst = Subst Monotype
+type TypingCtx = M.Map Name Polytype
 
 fresh :: Infer Name
 fresh = do
@@ -37,34 +38,30 @@ fresh = do
     put xs
     pure x
 
-class Substitutable a where
-    subst :: Subst -> a -> a
-    free :: a -> S.Set Name
+occurs :: Substitutable Monotype a => Name -> a -> Bool
+occurs n = S.member n . free @Monotype
 
-occurs :: Substitutable a => Name -> a -> Bool
-occurs n = S.member n . free
-
-instance Substitutable Monotype where
+instance Substitutable Monotype Monotype where
     subst s (Arr a b) = Arr (subst s a) (subst s b)
     subst s (TyVar n) = case M.lookup n s of
         Nothing -> TyVar n
         Just t -> t
     subst _ t = t
     
-    free (Arr a b) = free a `S.union` free b
+    free (Arr a b) = free @Monotype a `S.union` free @Monotype b
     free (TyVar n) = S.singleton n
     free _ = S.empty
 
-instance Substitutable Polytype where
+instance Substitutable Monotype Polytype where
     subst s (Polytype v t) =
         Polytype v (subst (M.filterWithKey (\k _ -> S.member k (M.keysSet s)) s) t)
-    free (Polytype v t) = free t `S.difference` v
+    free (Polytype v t) = free @Monotype t `S.difference` v
 
-instance Substitutable TypingCtx where
+instance Substitutable Monotype TypingCtx where
     subst s ctx = fmap (subst s) ctx
-    free ctx = S.unions (M.elems $ fmap free ctx)
+    free ctx = S.unions (M.elems $ fmap (free @Monotype) ctx)
 
-instance Substitutable Term where
+instance Substitutable Monotype Term where
     subst s (Lam v t e) = Lam v (subst s t) (subst s e)
     subst s (Let v t e) = Let v (subst s t) (subst s e)
     subst s (App f x) = App (subst s f) (subst s x)
@@ -72,11 +69,11 @@ instance Substitutable Term where
     subst s (Forall v t e) = Forall v (subst s t) (subst s e)
     subst _ x = x
 
-    free (Lam _ t e) = free t `S.union` free e
-    free (Let _ a b) = free a `S.union` free b
-    free (App a b) = free a `S.union` free b
-    free (Imp a b) = free a `S.union` free b
-    free (Forall _ t e) = free t `S.union` free e
+    free (Lam _ t e) = free @Monotype t `S.union` free @Monotype e
+    free (Let _ a b) = free @Monotype a `S.union` free @Monotype b
+    free (App a b) = free @Monotype a `S.union` free @Monotype b
+    free (Imp a b) = free @Monotype a `S.union` free @Monotype b
+    free (Forall _ t e) = free @Monotype t `S.union` free @Monotype e
     free _ = S.empty
 
 instantiate :: Polytype -> Infer Monotype
@@ -85,18 +82,15 @@ instantiate (Polytype v t) = do
     pure (subst s t)
 
 generalize :: TypingCtx -> Monotype -> Polytype
-generalize ctx t = Polytype (free t `S.difference` M.keysSet ctx) t
+generalize ctx t = Polytype (free @Monotype t `S.difference` M.keysSet ctx) t
 
-composeSubst :: Subst -> Subst -> Subst
-composeSubst f g = fmap (subst f) g `M.union` f
-
-bind :: Name -> Monotype -> Infer Subst
+bind :: Name -> Monotype -> Infer MonoSubst
 bind a t
     | t == TyVar a = pure M.empty
     | occurs a t = throwError $ InfiniteType a t
     | otherwise = pure $ M.singleton a t
 
-unify :: Monotype -> Monotype -> Infer Subst
+unify :: Monotype -> Monotype -> Infer MonoSubst
 unify (Arr a b) (Arr c d) = do
     f <- unify a c
     g <- unify b d
@@ -106,7 +100,7 @@ unify a (TyVar b) = bind b a
 unify x y | x == y = pure M.empty
 unify x y = throwError (UnificationFail x y)
 
-infer :: TypingCtx -> Term -> Infer (Subst, Monotype)
+infer :: TypingCtx -> Term -> Infer (MonoSubst, Monotype)
 infer ctx (Lam v tv m) = do
     (s, t) <- infer (M.insert v (Polytype S.empty tv) ctx) m
     pure (s, Arr (subst s tv) t)
