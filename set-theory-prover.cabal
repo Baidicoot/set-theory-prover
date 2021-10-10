@@ -30,9 +30,9 @@ executable set-theory-prover
     other-modules:
         Kernel.Subst,
         Kernel.Eval,
-        Kernel.Infer,
-        Kernel.Check,
-        Kernel.Types
+        Kernel.Types,
+        Kernel.ProofCheck,
+        Kernel.TypeCheck
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
