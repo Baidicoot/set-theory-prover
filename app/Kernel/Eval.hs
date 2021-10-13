@@ -40,7 +40,7 @@ instance Substitutable DeBrujin DeBrujin where
 unifyD :: DeBrujin -> DeBrujin -> Infer (TermSubst, TypeSubst)
 unifyD x y | x == y = pure (M.empty, M.empty)
 unifyD (DLam a) (DLam b) = unifyD a b
-unifyD (DAll t a) (DAll u b) = Ty.unify t u >> unifyD a b
+unifyD (DAll t a) (DAll u b) = Ty.unifyPoly t u >> unifyD a b
 unifyD (DImp a b) (DImp c d) = do
     (f,tf) <- unifyD a c
     (g,tg) <- unifyD b d
@@ -95,13 +95,20 @@ termToDeBrujin m (App f x) =
     DApp (termToDeBrujin m f) (termToDeBrujin m x)
 termToDeBrujin m (Imp a b) =
     DImp (termToDeBrujin m a) (termToDeBrujin m b)
+termToDeBrujin m (Const n) = DConst n
+termToDeBrujin m (MetaVar n) = DHole n
 
 deBrujinToTerm :: [Name] -> DeBrujin -> Infer Term
 deBrujinToTerm ns (DLam a) = do
     x <- fresh
     a' <- deBrujinToTerm (x:ns) a
     pure (Lam x a')
-deBrujinToTerm ns (DVar n) = pure (ns !! n)
+deBrujinToTerm ns (DAll t a) = do
+    x <- fresh
+    a' <- deBrujinToTerm (x:ns) a
+    pure (Forall x t a')
+deBrujinToTerm ns (DVar n) | length ns > n = pure (Var $ ns !! n)
+deBrujinToTerm ns (DVar n) = throwError (UnscopedDeBrujin n)
 deBrujinToTerm ns (DApp e0 e1) = do
     e0' <- deBrujinToTerm ns e0
     e1' <- deBrujinToTerm ns e1
@@ -110,3 +117,5 @@ deBrujinToTerm ns (DImp e0 e1) = do
     e0' <- deBrujinToTerm ns e0
     e1' <- deBrujinToTerm ns e1
     pure (Imp e0' e1')
+deBrujinToTerm _ (DConst n) = pure (Const n)
+deBrujinToTerm _ (DHole n) = pure (MetaVar n)

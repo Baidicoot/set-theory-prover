@@ -6,6 +6,7 @@ import qualified Data.Map as M
 import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Reader
+import Data.Bifunctor
 
 type Name = T.Text
 
@@ -17,7 +18,8 @@ names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
 
 data ProofError
     = InfiniteType Name Monotype
-    | TypeUnificationFail Monotype Monotype
+    | MonotypeUnificationFail Monotype Monotype
+    | PolytypeUnificationFail Polytype Polytype
     | NotInContext Name
     | ObjectUnificationFail DeBrujin DeBrujin
     | HigherOrderUnification DeBrujin DeBrujin
@@ -26,6 +28,7 @@ data ProofError
     | DoesNotMatch Proof Term
     | UnknownAxiom Name
     | UnknownConst Name
+    | UnscopedDeBrujin Int
 
 type Infer = ReaderT TypeCtx (ExceptT ProofError (State ([Name], MetaVarTypes)))
 
@@ -39,13 +42,14 @@ fresh = do
 discoverMetaVar :: Name -> Infer Monotype
 discoverMetaVar x = do
     t <- fmap TyVar fresh
-    modify (\(ns,ms) -> (ns,M.insert x t ms))
+    modify (second (M.insert x t))
+    pure t
 
 data DeBrujin
     = DLam DeBrujin
     | DApp DeBrujin DeBrujin
     | DVar Int
-    | DAll Monotype DeBrujin
+    | DAll Polytype DeBrujin
     | DImp DeBrujin DeBrujin
     | DConst Name
     | DHole Name
@@ -57,7 +61,7 @@ data Term
     | App Term Term
     | Var Name
     | Imp Term Term
-    | Forall Name Monotype Term
+    | Forall Name Polytype Term
     | Const Name
     | MetaVar Name
     deriving(Eq)

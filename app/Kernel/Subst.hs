@@ -23,9 +23,10 @@ type TypeSubst = Subst Monotype
 composeSubst :: Substitutable a a => Subst a -> Subst a -> Subst a
 composeSubst f g = fmap (subst f) g `M.union` f
 
-(<:) = composeSubst
+(<+) :: Substitutable a a => Subst a -> Subst a -> Subst a
+(<+) = composeSubst
 
-infixr 0 <:
+infixr 0 <+
 
 class Substitutable a b where
     subst :: Subst a -> b -> b
@@ -37,3 +38,7 @@ instance Substitutable a b => Substitutable a (Maybe b) where
 
     free (Just b) = free @a b
     free Nothing = S.empty
+
+instance Substitutable a b => Substitutable a (M.Map c b) where
+    subst s m = fmap (subst s) m
+    free m = S.unions (M.elems $ fmap (free @a) m)
