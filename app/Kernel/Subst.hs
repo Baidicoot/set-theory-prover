@@ -23,6 +23,10 @@ type TypeSubst = Subst Monotype
 composeSubst :: Substitutable a a => Subst a -> Subst a -> Subst a
 composeSubst f g = fmap (subst f) g `M.union` f
 
+(<:) = composeSubst
+
+infixr 0 <:
+
 class Substitutable a b where
     subst :: Subst a -> b -> b
     free :: b -> S.Set Name

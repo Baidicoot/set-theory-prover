@@ -87,7 +87,7 @@ termToDeBrujin :: M.Map Name Int -> Term -> DeBrujin
 termToDeBrujin m (Var n) = case M.lookup n m of
     Just i -> DVar i
     Nothing -> DConst n
-termToDeBrujin m (Lam n _ b) = DLam (termToDeBrujin (M.insert n 0 (fmap (+1) m)) b)
+termToDeBrujin m (Lam n b) = DLam (termToDeBrujin (M.insert n 0 (fmap (+1) m)) b)
 termToDeBrujin m (Forall n t b) = DAll t (termToDeBrujin (M.insert n 0 (fmap (+1) m)) b)
 termToDeBrujin m (Let n x t) =
     DApp (DLam (termToDeBrujin (M.insert n 0 (fmap (+1) m)) t)) (termToDeBrujin m x)
@@ -95,3 +95,18 @@ termToDeBrujin m (App f x) =
     DApp (termToDeBrujin m f) (termToDeBrujin m x)
 termToDeBrujin m (Imp a b) =
     DImp (termToDeBrujin m a) (termToDeBrujin m b)
+
+deBrujinToTerm :: [Name] -> DeBrujin -> Infer Term
+deBrujinToTerm ns (DLam a) = do
+    x <- fresh
+    a' <- deBrujinToTerm (x:ns) a
+    pure (Lam x a')
+deBrujinToTerm ns (DVar n) = pure (ns !! n)
+deBrujinToTerm ns (DApp e0 e1) = do
+    e0' <- deBrujinToTerm ns e0
+    e1' <- deBrujinToTerm ns e1
+    pure (App e0' e1')
+deBrujinToTerm ns (DImp e0 e1) = do
+    e0' <- deBrujinToTerm ns e0
+    e1' <- deBrujinToTerm ns e1
+    pure (Imp e0' e1')

@@ -5,10 +5,12 @@ import qualified Data.Set as S
 import qualified Data.Map as M
 import Control.Monad.State
 import Control.Monad.Except
+import Control.Monad.Reader
 
 type Name = T.Text
 
 type MetaVarTypes = M.Map Name Monotype
+type TypeCtx = M.Map Name Polytype
 
 names :: [Name]
 names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
@@ -23,8 +25,9 @@ data ProofError
     | NoEvalRule DeBrujin
     | DoesNotMatch Proof Term
     | UnknownAxiom Name
+    | UnknownConst Name
 
-type Infer = ExceptT ProofError (State ([Name], MetaVarTypes))
+type Infer = ReaderT TypeCtx (ExceptT ProofError (State ([Name], MetaVarTypes)))
 
 fresh :: Infer Name
 fresh = do
@@ -32,6 +35,11 @@ fresh = do
     let (x:xs) = ns
     put (xs, ms)
     pure x
+
+discoverMetaVar :: Name -> Infer Monotype
+discoverMetaVar x = do
+    t <- fmap TyVar fresh
+    modify (\(ns,ms) -> (ns,M.insert x t ms))
 
 data DeBrujin
     = DLam DeBrujin
@@ -44,12 +52,13 @@ data DeBrujin
     deriving(Eq)
 
 data Term
-    = Lam Name Monotype Term
+    = Lam Name Term
     | Let Name Term Term
     | App Term Term
     | Var Name
     | Imp Term Term
     | Forall Name Monotype Term
+    | Const Name
     | MetaVar Name
     deriving(Eq)
 

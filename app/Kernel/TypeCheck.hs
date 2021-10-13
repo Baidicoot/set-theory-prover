@@ -19,10 +19,10 @@ import Kernel.Subst
 Infer.hs - INFERENCE FOR THE OBJECT LANGUAGE
 ============================================
 Basically just Hindley-Milner.
-Adapted from http://dev.stephendiehl.com/fun/006_hindley_milner.html
--}
+Implemented as Algorithm W (https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system#Algorithm_W)
 
-type TypingCtx = M.Map Name Polytype
+maybe make ~sane~ non-haskellic variable naming scheme
+-}
 
 occurs :: Substitutable Monotype a => Name -> a -> Bool
 occurs n = S.member n . free @Monotype
@@ -67,7 +67,7 @@ instantiate (Polytype v t) = do
     s <- M.fromList <$> mapM (\n -> ((,) n . TyVar) <$> fresh) (S.toList v)
     pure (subst s t)
 
-generalize :: TypingCtx -> Monotype -> Polytype
+generalize :: TypeCtx -> Monotype -> Polytype
 generalize ctx t = Polytype (free @Monotype t `S.difference` M.keysSet ctx) t
 
 bind :: Name -> Monotype -> Infer TypeSubst
@@ -79,41 +79,58 @@ bind a t
 unify :: Monotype -> Monotype -> Infer TypeSubst
 unify (Arr a b) (Arr c d) = do
     f <- unify a c
-    g <- unify b d
-    pure (composeSubst g f)
+    g <- unify (subst f b) (subst f g)
+    pure (g<:f)
 unify (TyVar a) b = bind a b
 unify a (TyVar b) = bind b a
 unify x y | x == y = pure M.empty
 unify x y = throwError (TypeUnificationFail x y)
 
-infer :: TypingCtx -> Term -> Infer (TypeSubst, Monotype, MetaVarTypes)
-infer ctx (Lam v tv m) = do
-    (s, t) <- infer (M.insert v (Polytype S.empty tv) ctx) m
-    pure (s, Arr (subst s tv) t)
-infer ctx (Var v) = case M.lookup v ctx of
-    Just s -> do
-        t <- instantiate s
-        pure (M.empty, t)
-    Nothing -> throwError (NotInContext v)
-infer ctx (MetaVar v) = do
-    {- maybe add MetaVarTypes to state? -}
-infer ctx (Let v n m) = do
-    (sn, tn) <- infer ctx n
-    (sm, tm) <- infer (M.insert v (generalize (subst sn ctx) tn) ctx) m
-    pure (composeSubst sn sm, tm)
-infer ctx (App f x) = do
-    tv <- fmap TyVar fresh
-    (sx, tx) <- infer ctx x
-    (sf, tf) <- infer ctx (subst sx f)
-    sa <- unify tf (Arr (subst sf tx) tv)
-    pure (composeSubst (composeSubst sa sf) sx, subst s tv)
-infer ctx (Imp a b) = do
-    (sa, ta) <- infer ctx a
-    sau <- unify ta Prop
-    (sb, tb) <- infer ctx (subst sa b)
-    sbu <- unify (subst sa tb) Prop
-    pure (composeSubst (composeSubst sb sbu) (composeSubst sa sau), Prop)
-infer ctx (Forall v tv m) = do
-    (s, t) <- infer (M.insert v (Polytype S.empty tv) ctx) m
-    su <- unify t Prop
-    pure (composeSubst s su, Prop)
+{- MIGHT NEED TO SUBSTITUTE INTO ANNOTATIONS IN FORALL? -}
+infer :: Term -> Infer (TypeSubst, Monotype)
+infer (Lam x e) = do
+    t <- fmap TyVar fresh
+    (s, t') <- local (M.insert v (Polytype S.empty t)) (infer e)
+    pure (s, Arr (subst s t) t')
+infer (Var x) = do
+    ctx <- ask
+    case M.lookup x ctx of
+        Just s -> do
+            t <- instantiate s
+            pure (M.empty, t)
+        Nothing -> throwError (NotInContext x)
+infer (Const x) = do
+    ctx <- ask
+    case M.lookup x ctx of
+        Just s -> do
+            t <- instantiate s
+            pure (M.empty, t)
+        Nothing -> throwError (UnknownConst x)
+infer (MetaVar x) = do
+    (_,ms) <- get
+    case M.lookup x ctx of
+        Just t -> pure (M.empty, t)
+        Nothing -> do
+            t <- discoverMetaVar x
+            pure (M.empty, t)
+infer (Let x e0 e1) = do
+    (s0, t) <- infer e0
+    ctx <- ask
+    (s1, t1) <- local (M.insert x (generalize (subst s0 ctx) t)) (infer e1)
+    pure (s1<:s0, t1)
+infer (App e0 e1) = do
+    (s0, t0) <- infer e0
+    (s1, t1) <- local (subst s0) (infer e1)
+    t' <- fmap TyVar fresh
+    s2 <- unify (subst s1 t0) (Arr t1 t')
+    pure (s2<:s1<:s0, subst s2 t')
+infer (Imp e0 e1) = do
+    (s0, t0) <- infer e0
+    s0' <- unify t0 Prop
+    (s1, t1) <- infer e1
+    s1' <- unify (subst s0 t1) Prop
+    pure (s1<:s1'<:s0<:s0', Prop)
+infer (Forall x t e) = do
+    (s, t') <- local (M.insert x (Polytype S.empty t)) (infer e)
+    s' <- unify t' Prop
+    pure (s<:s', Prop)
