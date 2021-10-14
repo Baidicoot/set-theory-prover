@@ -78,8 +78,6 @@ bind a t
 Two type schemes are the same iff there is a one-to-one
 mapping between quantified variables used in one polytype
 to the other, and no quantified variables 'escape'
-
-should check logic to see if reducable; is VERY bruteforce-y
 -}
 unifyPoly :: Polytype -> Polytype -> Infer TypeSubst
 unifyPoly (Polytype v0 t0) (Polytype v1 t1) = do
@@ -105,11 +103,9 @@ unifyPoly (Polytype v0 t0) (Polytype v1 t1) = do
             else x1 `S.member` v0
             where
                 onlyMappedTo :: Name -> Name -> [(Name,Name)] -> Bool
-                onlyMappedTo x0 x1 ((x2,x3):xs) | x0 == x2 && x1 == x3 = onlyMappedTo x0 x1 xs
-                onlyMappedTo x0 x1 ((x2,x3):xs) | x0 == x3 && x1 == x2 = onlyMappedTo x0 x1 xs
-                onlyMappedTo x0 x1 ((x2,x3):xs)
-                    | x0 /= x2 && x0 /= x3 && x1 /= x2 && x1 /= x3 = onlyMappedTo x0 x1 xs
-                onlyMappedTo _ _ _ = False
+                onlyMappedTo x0 x1 ((x2,x3):xs) | x2 == x1 = x3 == x0
+                onlyMappedTo x0 x1 ((x2,x3):xs) = onlyMappedTo x0 x1 xs
+                onlyMappedTo _ _ [] = True
         isBijective _ _ _ = False
 
 unify :: Monotype -> Monotype -> Infer TypeSubst

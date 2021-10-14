@@ -16,7 +16,8 @@ import Kernel.Types
 
 type Subst = M.Map Name
 
-type TermSubst = Subst DeBrujin
+type DeBrujinSubst = Subst DeBrujin
+type TermSubst = Subst Term
 type TypeSubst = Subst Monotype
 
 {- LEFT-BIASED COMPOSITION -}

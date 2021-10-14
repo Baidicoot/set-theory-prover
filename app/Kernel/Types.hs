@@ -12,6 +12,7 @@ type Name = T.Text
 
 type MetaVarTypes = M.Map Name Monotype
 type TypeCtx = M.Map Name Polytype
+type EvalCtx = M.Map Name (DeBrujin,Polytype)
 
 names :: [Name]
 names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]

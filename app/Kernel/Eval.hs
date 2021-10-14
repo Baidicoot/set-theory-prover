@@ -15,6 +15,7 @@ import qualified Data.Set as S
 import Control.Monad
 import Control.Monad.Except
 import qualified Kernel.Subst as Ty
+import Kernel.Subst (Substitutable)
 
 {-
 Kernel.Eval - equality checking between type-erased normal forms
@@ -37,15 +38,25 @@ instance Substitutable DeBrujin DeBrujin where
     free (DImp a b) = S.union (free @DeBrujin a) (free @DeBrujin b)
     free _ = S.empty
 
-unifyD :: DeBrujin -> DeBrujin -> Infer (TermSubst, TypeSubst)
-unifyD x y | x == y = pure (M.empty, M.empty)
-unifyD (DLam a) (DLam b) = unifyD a b
-unifyD (DAll t a) (DAll u b) = Ty.unifyPoly t u >> unifyD a b
-unifyD (DImp a b) (DImp c d) = do
-    (f,tf) <- unifyD a c
-    (g,tg) <- unifyD b d
-    pure (composeSubst f g, composeSubst tf tg)
-unifyD a b = throwError (HigherOrderUnification a b)
+{- free variables vs bound variables are already handled -}
+instance Substitutable Term Term where
+    subst s (MetaVar n) = case M.lookup n s of
+        Just e -> e
+        Nothing -> MetaVar n
+    subst s (Lam n e) = Lam n (subst s e)
+    subst s (Let n e0 e1) = Let n (subst s e0) (subst s e1)
+    subst s (App e0 e1) = App (subst s e0) (subst s e1)
+    subst s (Imp e0 e1) = Imp (subst s e0) (subst s e1)
+    subst s (Forall n t e) = Forall n t (subst s e)
+    subst _ x = x
+
+    free (MetaVar n) = S.singleton n
+    free (Lam _ e) = free @Term e
+    free (Let _ e0 e1) = free @Term e0 `S.union` free @Term e1
+    free (App e0 e1) = free @Term e0 `S.union` free @Term e1
+    free (Imp e0 e1) = free @Term e0 `S.union` free @Term e1
+    free (Forall _ _ e) = free @Term e
+    free _ = S.empty
 
 shiftVars :: (Int -> Int) -> Int -> DeBrujin -> DeBrujin
 shiftVars f i (DVar v) | v < i = DVar v
@@ -70,18 +81,40 @@ isConstApp (DConst _) = True
 isConstApp (DApp f _) = isConstApp f
 isConstApp _ = False
 
-whnfDeBrujin :: DeBrujin -> Infer DeBrujin
-whnfDeBrujin (DLam a) = pure (DLam a)
-whnfDeBrujin (DApp f x) = do
-    f' <- whnfDeBrujin f
-    case f' of
-      DLam b -> whnfDeBrujin (substDeBrujin 0 x b)
-      x | isConstApp x -> fmap (DApp x) (whnfDeBrujin x)
-      x -> throwError (NonFunctionEval x)
-whnfDeBrujin (DAll m a) = fmap (DAll m) (whnfDeBrujin a)
-whnfDeBrujin (DImp a b) = liftM2 DImp (whnfDeBrujin a) (whnfDeBrujin b)
-whnfDeBrujin (DHole x) = pure (DHole x)
-whnfDeBrujin x = throwError (NoEvalRule x)
+{-
+reduceWhnfDeBrujin requires at least one reduction
+whnfDeBrujin does not require any reduction
+-}
+
+reduceWhnfDeBrujin :: EvalCtx -> DeBrujin -> Maybe DeBrujin
+reduceWhnfDeBrujin ctx (DApp f x) =
+    case whnfDeBrujin ctx f of
+      DLam d -> Just $ whnfDeBrujin ctx (substDeBrujin 0 x d)
+      _ -> Nothing
+reduceWhnfDeBrujin ctx (DConst n) = fst <$> M.lookup n ctx
+reduceWhnfDeBrujin _ _ = Nothing
+
+whnfDeBrujin :: EvalCtx -> DeBrujin -> DeBrujin
+whnfDeBrujin ctx (DApp f x) = case whnfDeBrujin ctx f of
+    DLam d -> whnfDeBrujin ctx (substDeBrujin 0 x d)
+    x -> x
+whnfDeBrujin ctx (DConst n) = maybe (DConst n) fst (M.lookup n ctx)
+whnfDeBrujin _ x = x
+
+unifyD :: EvalCtx -> DeBrujin -> DeBrujin -> Infer (DeBrujinSubst, TypeSubst)
+unifyD ctx x y | x == y = pure (M.empty, M.empty)
+unifyD ctx (DLam a) (DLam b) = unifyD ctx a b
+unifyD ctx (DAll t a) (DAll u b) = Ty.unifyPoly t u >> unifyD ctx a b
+unifyD ctx (DImp a b) (DImp c d) = do
+    (f,tf) <- unifyD ctx a c
+    (g,tg) <- unifyD ctx b d
+    pure (f<+g, tf<+tg)
+unifyD ctx a b =
+    case (reduceWhnfDeBrujin ctx a,reduceWhnfDeBrujin ctx b) of
+        (Nothing,Nothing) -> throwError (ObjectUnificationFail a b)
+        (Just a,Nothing) -> unifyD ctx a b
+        (Nothing,Just b) -> unifyD ctx a b
+        (Just a, Just b) -> unifyD ctx a b
 
 termToDeBrujin :: M.Map Name Int -> Term -> DeBrujin
 termToDeBrujin m (Var n) = case M.lookup n m of
@@ -119,3 +152,16 @@ deBrujinToTerm ns (DImp e0 e1) = do
     pure (Imp e0' e1')
 deBrujinToTerm _ (DConst n) = pure (Const n)
 deBrujinToTerm _ (DHole n) = pure (MetaVar n)
+
+simpTerm :: EvalCtx -> Term -> Infer Term
+simpTerm ctx t =
+    let d = termToDeBrujin M.empty t in
+    deBrujinToTerm [] (whnfDeBrujin ctx d)
+
+unifyTerms :: EvalCtx -> Term -> Term -> Infer (TermSubst, TypeSubst)
+unifyTerms ctx t0 t1 = do
+    let d0 = termToDeBrujin M.empty t0
+    let d1 = termToDeBrujin M.empty t1
+    (sd,st) <- unifyD ctx d0 d1
+    se <- mapM (deBrujinToTerm []) sd
+    pure (se, st)
