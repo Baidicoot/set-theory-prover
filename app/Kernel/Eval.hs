@@ -14,8 +14,6 @@ import qualified Data.Set as S
 
 import Control.Monad
 import Control.Monad.Except
-import qualified Kernel.Subst as Ty
-import Kernel.Subst (Substitutable)
 
 {-
 Kernel.Eval - equality checking between type-erased normal forms
