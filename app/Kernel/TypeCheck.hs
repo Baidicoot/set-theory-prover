@@ -79,6 +79,7 @@ Two type schemes are the same iff there is a one-to-one
 mapping between quantified variables used in one polytype
 to the other, and no quantified variables 'escape'
 -}
+{-
 unifyPoly :: Polytype -> Polytype -> Infer TypeSubst
 unifyPoly (Polytype v0 t0) (Polytype v1 t1) = do
     s <- unify t0 t1
@@ -107,6 +108,7 @@ unifyPoly (Polytype v0 t0) (Polytype v1 t1) = do
                 onlyMappedTo x0 x1 ((x2,x3):xs) = onlyMappedTo x0 x1 xs
                 onlyMappedTo _ _ [] = True
         isBijective _ _ _ = False
+-}
 
 unify :: Monotype -> Monotype -> Infer TypeSubst
 unify (Arr a b) (Arr c d) = do
@@ -160,6 +162,6 @@ infer ctx (Imp e0 e1) = do
     s1' <- unify (subst (s0<+s0') t1) Prop
     pure (s1<+s1'<+s0<+s0', Prop)
 infer ctx (Forall x t e) = do
-    (s, t') <- infer (M.insert x t ctx) e
+    (s, t') <- infer (M.insert x (Polytype S.empty t) ctx) e
     s' <- unify t' Prop
     pure (s<+s', Prop)

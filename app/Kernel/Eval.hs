@@ -102,7 +102,7 @@ whnfDeBrujin _ x = x
 unifyD :: ObjCtx -> DeBrujin -> DeBrujin -> Infer (DeBrujinSubst, TypeSubst)
 unifyD ctx x y | x == y = pure (M.empty, M.empty)
 unifyD ctx (DLam a) (DLam b) = unifyD ctx a b
-unifyD ctx (DAll t a) (DAll u b) = Ty.unifyPoly t u >> unifyD ctx a b
+unifyD ctx (DAll t a) (DAll u b) = Ty.unify t u >> unifyD ctx a b
 unifyD ctx (DImp a b) (DImp c d) = do
     (f,tf) <- unifyD ctx a c
     (g,tg) <- unifyD ctx b d
@@ -151,15 +151,25 @@ deBrujinToTerm ns (DImp e0 e1) = do
 deBrujinToTerm _ (DConst n) = pure (Const n)
 deBrujinToTerm _ (DHole n) = pure (MetaVar n)
 
+substDBT :: DeBrujinSubst -> [Name] -> Term -> Infer Term
+substDBT s ns (MetaVar n) = case M.lookup n s of
+        Just e -> deBrujinToTerm ns e
+        Nothing -> pure (MetaVar n)
+substDBT s ns (Lam n e) = Lam n <$> substDBT s (n:ns) e
+substDBT s ns (Let n e0 e1) = liftM2 (Let n) (substDBT s ns e0) (substDBT s (n:ns) e1)
+substDBT s ns (App e0 e1) =  liftM2 App (substDBT s ns e0) (substDBT s ns e1)
+substDBT s ns (Imp e0 e1) = liftM2 Imp (substDBT s ns e0) (substDBT s ns e1)
+substDBT s ns (Forall n t e) = Forall n t <$> substDBT s (n:ns) e
+substDBT _ _ x = pure x
+
 whnfTerm :: ObjCtx -> Term -> Infer Term
 whnfTerm ctx t =
     let d = termToDeBrujin M.empty t in
     deBrujinToTerm [] (whnfDeBrujin ctx d)
 
-unifyTerms :: ObjCtx -> Term -> Term -> Infer (TermSubst, TypeSubst)
+unifyTerms :: ObjCtx -> Term -> Term -> Infer (DeBrujinSubst, TypeSubst)
 unifyTerms ctx t0 t1 = do
     let d0 = termToDeBrujin M.empty t0
     let d1 = termToDeBrujin M.empty t1
     (sd,st) <- unifyD ctx d0 d1
-    se <- mapM (deBrujinToTerm []) sd
-    pure (se, st)
+    pure (sd, st)

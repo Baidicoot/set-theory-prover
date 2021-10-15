@@ -52,7 +52,7 @@ data DeBrujin
     = DLam DeBrujin
     | DApp DeBrujin DeBrujin
     | DVar Int
-    | DAll Polytype DeBrujin
+    | DAll Monotype DeBrujin
     | DImp DeBrujin DeBrujin
     | DConst Name
     | DHole Name
@@ -64,7 +64,7 @@ data Term
     | App Term Term
     | Var Name
     | Imp Term Term
-    | Forall Name Polytype Term
+    | Forall Name Monotype Term
     | Const Name
     | MetaVar Name
     deriving(Eq)
