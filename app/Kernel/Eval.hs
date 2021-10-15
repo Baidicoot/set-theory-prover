@@ -84,7 +84,7 @@ reduceWhnfDeBrujin requires at least one reduction
 whnfDeBrujin does not require any reduction
 -}
 
-reduceWhnfDeBrujin :: EvalCtx -> DeBrujin -> Maybe DeBrujin
+reduceWhnfDeBrujin :: ObjCtx -> DeBrujin -> Maybe DeBrujin
 reduceWhnfDeBrujin ctx (DApp f x) =
     case whnfDeBrujin ctx f of
       DLam d -> Just $ whnfDeBrujin ctx (substDeBrujin 0 x d)
@@ -92,14 +92,14 @@ reduceWhnfDeBrujin ctx (DApp f x) =
 reduceWhnfDeBrujin ctx (DConst n) = fst <$> M.lookup n ctx
 reduceWhnfDeBrujin _ _ = Nothing
 
-whnfDeBrujin :: EvalCtx -> DeBrujin -> DeBrujin
+whnfDeBrujin :: ObjCtx -> DeBrujin -> DeBrujin
 whnfDeBrujin ctx (DApp f x) = case whnfDeBrujin ctx f of
     DLam d -> whnfDeBrujin ctx (substDeBrujin 0 x d)
     x -> x
 whnfDeBrujin ctx (DConst n) = maybe (DConst n) fst (M.lookup n ctx)
 whnfDeBrujin _ x = x
 
-unifyD :: EvalCtx -> DeBrujin -> DeBrujin -> Infer (DeBrujinSubst, TypeSubst)
+unifyD :: ObjCtx -> DeBrujin -> DeBrujin -> Infer (DeBrujinSubst, TypeSubst)
 unifyD ctx x y | x == y = pure (M.empty, M.empty)
 unifyD ctx (DLam a) (DLam b) = unifyD ctx a b
 unifyD ctx (DAll t a) (DAll u b) = Ty.unifyPoly t u >> unifyD ctx a b
@@ -151,12 +151,12 @@ deBrujinToTerm ns (DImp e0 e1) = do
 deBrujinToTerm _ (DConst n) = pure (Const n)
 deBrujinToTerm _ (DHole n) = pure (MetaVar n)
 
-simpTerm :: EvalCtx -> Term -> Infer Term
-simpTerm ctx t =
+whnfTerm :: ObjCtx -> Term -> Infer Term
+whnfTerm ctx t =
     let d = termToDeBrujin M.empty t in
     deBrujinToTerm [] (whnfDeBrujin ctx d)
 
-unifyTerms :: EvalCtx -> Term -> Term -> Infer (TermSubst, TypeSubst)
+unifyTerms :: ObjCtx -> Term -> Term -> Infer (TermSubst, TypeSubst)
 unifyTerms ctx t0 t1 = do
     let d0 = termToDeBrujin M.empty t0
     let d1 = termToDeBrujin M.empty t1

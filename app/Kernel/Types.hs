@@ -12,7 +12,8 @@ type Name = T.Text
 
 type MetaVarTypes = M.Map Name Monotype
 type TypeCtx = M.Map Name Polytype
-type EvalCtx = M.Map Name (DeBrujin,Polytype)
+type ObjCtx = M.Map Name (DeBrujin,Polytype)
+type ThmCtx = M.Map Name Term
 
 names :: [Name]
 names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
@@ -27,11 +28,12 @@ data ProofError
     | NonFunctionEval DeBrujin
     | NoEvalRule DeBrujin
     | DoesNotMatch Proof Term
+    | NotForall Proof Term
     | UnknownAxiom Name
     | UnknownConst Name
     | UnscopedDeBrujin Int
 
-type Infer = ReaderT TypeCtx (ExceptT ProofError (State ([Name], MetaVarTypes)))
+type Infer = ExceptT ProofError (State ([Name], MetaVarTypes))
 
 fresh :: Infer Name
 fresh = do

@@ -118,50 +118,48 @@ unify a (TyVar b) = bind b a
 unify x y | x == y = pure M.empty
 unify x y = throwError (MonotypeUnificationFail x y)
 
-infer :: Term -> Infer (TypeSubst, Monotype)
-infer (Lam x e) = do
+infer :: TypeCtx -> Term -> Infer (TypeSubst, Monotype)
+infer ctx (Lam x e) = do
     t <- fmap TyVar fresh
-    (s, t') <- local (M.insert x (Polytype S.empty t)) (infer e)
+    (s, t') <- infer (M.insert x (Polytype S.empty t) ctx) e
     pure (s, Arr (subst s t) t')
-infer (Var x) = do
-    ctx <- ask
+infer ctx (Var x) =
     case M.lookup x ctx of
         Just s -> do
             t <- instantiate s
             pure (M.empty, t)
         Nothing -> throwError (NotInContext x)
-infer (Const x) = do
-    ctx <- ask
+infer ctx (Const x) =
     case M.lookup x ctx of
         Just s -> do
             t <- instantiate s
             pure (M.empty, t)
         Nothing -> throwError (UnknownConst x)
-infer (MetaVar x) = do
+infer ctx (MetaVar x) = do
     (_,ms) <- get
     case M.lookup x ms of
         Just t -> pure (M.empty, t)
         Nothing -> do
             t <- discoverMetaVar x
             pure (M.empty, t)
-infer (Let x e0 e1) = do
-    (s0, t) <- infer e0
-    ctx <- ask
-    (s1, t1) <- local (M.insert x (generalize (subst s0 ctx) t)) (infer $ subst s0 e1)
+infer ctx (Let x e0 e1) = do
+    (s0, t) <- infer ctx e0
+    let t' = generalize (subst s0 ctx) t
+    (s1, t1) <- infer (M.insert x t' ctx) (subst s0 e1)
     pure (s1<+s0, t1)
-infer (App e0 e1) = do
-    (s0, t0) <- infer e0
-    (s1, t1) <- local (subst s0) (infer $ subst s0 e1)
+infer ctx (App e0 e1) = do
+    (s0, t0) <- infer ctx e0
+    (s1, t1) <- infer (subst s0 ctx) (subst s0 e1)
     t' <- fmap TyVar fresh
     s2 <- unify (subst s1 t0) (Arr t1 t')
     pure (s2<+s1<+s0, subst s2 t')
-infer (Imp e0 e1) = do
-    (s0, t0) <- infer e0
+infer ctx (Imp e0 e1) = do
+    (s0, t0) <- infer ctx e0
     s0' <- unify t0 Prop
-    (s1, t1) <- infer $ subst (s0<+s0') e1
+    (s1, t1) <- infer ctx (subst (s0<+s0') e1)
     s1' <- unify (subst (s0<+s0') t1) Prop
     pure (s1<+s1'<+s0<+s0', Prop)
-infer (Forall x t e) = do
-    (s, t') <- local (M.insert x t) (infer e)
+infer ctx (Forall x t e) = do
+    (s, t') <- infer (M.insert x t ctx) e
     s' <- unify t' Prop
     pure (s<+s', Prop)
