@@ -4,7 +4,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-module Kernel.TypeCheck where
+module Kernel.TypeCheck (inferObj, unifyTyp) where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -82,7 +82,7 @@ to the other, and no quantified variables 'escape'
 {-
 unifyPoly :: Polytype -> Polytype -> Infer TypeSubst
 unifyPoly (Polytype v0 t0) (Polytype v1 t1) = do
-    s <- unify t0 t1
+    s <- unifyTyp t0 t1
     let quantifiedVars = v0 `S.union` v1
     let monoSubsts = M.filterWithKey (\k _ -> not $ S.member k quantifiedVars) s
     let polySubsts = M.filterWithKey (\k _ -> S.member k quantifiedVars) s
@@ -110,58 +110,58 @@ unifyPoly (Polytype v0 t0) (Polytype v1 t1) = do
         isBijective _ _ _ = False
 -}
 
-unify :: Monotype -> Monotype -> Infer TypeSubst
-unify (Arr a b) (Arr c d) = do
-    f <- unify a c
-    g <- unify (subst f b) (subst f d)
+unifyTyp :: Monotype -> Monotype -> Infer TypeSubst
+unifyTyp (Arr a b) (Arr c d) = do
+    f <- unifyTyp a c
+    g <- unifyTyp (subst f b) (subst f d)
     pure (g<+f)
-unify (TyVar a) b = bind a b
-unify a (TyVar b) = bind b a
-unify x y | x == y = pure M.empty
-unify x y = throwError (MonotypeUnificationFail x y)
+unifyTyp (TyVar a) b = bind a b
+unifyTyp a (TyVar b) = bind b a
+unifyTyp x y | x == y = pure M.empty
+unifyTyp x y = throwError (MonotypeUnificationFail x y)
 
-infer :: TypeCtx -> Term -> Infer (TypeSubst, Monotype)
-infer ctx (Lam x e) = do
+inferObj :: TypeCtx -> Term -> Infer (TypeSubst, Monotype)
+inferObj ctx (Lam x e) = do
     t <- fmap TyVar fresh
-    (s, t') <- infer (M.insert x (Polytype S.empty t) ctx) e
+    (s, t') <- inferObj (M.insert x (Polytype S.empty t) ctx) e
     pure (s, Arr (subst s t) t')
-infer ctx (Var x) =
+inferObj ctx (Var x) =
     case M.lookup x ctx of
         Just s -> do
             t <- instantiate s
             pure (M.empty, t)
         Nothing -> throwError (NotInContext x)
-infer ctx (Const x) =
+inferObj ctx (Const x) =
     case M.lookup x ctx of
         Just s -> do
             t <- instantiate s
             pure (M.empty, t)
         Nothing -> throwError (UnknownConst x)
-infer ctx (MetaVar x) = do
+inferObj ctx (MetaVar x) = do
     (_,ms) <- get
     case M.lookup x ms of
         Just t -> pure (M.empty, t)
         Nothing -> do
             t <- discoverMetaVar x
             pure (M.empty, t)
-infer ctx (Let x e0 e1) = do
-    (s0, t) <- infer ctx e0
+inferObj ctx (Let x e0 e1) = do
+    (s0, t) <- inferObj ctx e0
     let t' = generalize (subst s0 ctx) t
-    (s1, t1) <- infer (M.insert x t' ctx) (subst s0 e1)
+    (s1, t1) <- inferObj (M.insert x t' ctx) (subst s0 e1)
     pure (s1<+s0, t1)
-infer ctx (App e0 e1) = do
-    (s0, t0) <- infer ctx e0
-    (s1, t1) <- infer (subst s0 ctx) (subst s0 e1)
+inferObj ctx (App e0 e1) = do
+    (s0, t0) <- inferObj ctx e0
+    (s1, t1) <- inferObj (subst s0 ctx) (subst s0 e1)
     t' <- fmap TyVar fresh
-    s2 <- unify (subst s1 t0) (Arr t1 t')
+    s2 <- unifyTyp (subst s1 t0) (Arr t1 t')
     pure (s2<+s1<+s0, subst s2 t')
-infer ctx (Imp e0 e1) = do
-    (s0, t0) <- infer ctx e0
-    s0' <- unify t0 Prop
-    (s1, t1) <- infer ctx (subst (s0<+s0') e1)
-    s1' <- unify (subst (s0<+s0') t1) Prop
+inferObj ctx (Imp e0 e1) = do
+    (s0, t0) <- inferObj ctx e0
+    s0' <- unifyTyp t0 Prop
+    (s1, t1) <- inferObj ctx (subst (s0<+s0') e1)
+    s1' <- unifyTyp (subst (s0<+s0') t1) Prop
     pure (s1<+s1'<+s0<+s0', Prop)
-infer ctx (Forall x t e) = do
-    (s, t') <- infer (M.insert x (Polytype S.empty t) ctx) e
-    s' <- unify t' Prop
+inferObj ctx (Forall x t e) = do
+    (s, t') <- inferObj (M.insert x (Polytype S.empty t) ctx) e
+    s' <- unifyTyp t' Prop
     pure (s<+s', Prop)
