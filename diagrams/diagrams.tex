@@ -1,0 +1,78 @@
+\documentclass{article}
+
+\author{Aidan Ewart}
+\title{Formalization of ATT}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{syntax}
+\usepackage{mathpartir}
+
+\newcommand{\set}{\mathcal{U}}
+\newcommand{\W}{\mathcal{W}}
+\newcommand{\V}{\mathcal{V}}
+\newcommand{\nat}{\mathbb{N}}
+\newcommand{\fin}{\mathbb{F}}
+\newcommand{\prop}{\mathbb{P}}
+\newcommand{\elim}{\mathrm{elim}}
+\newcommand{\rec}{\mathrm{rec}}
+\newcommand{\tx}[1]{\mathrm{#1}}
+
+\newcommand{\fun}[2]{\lambda #1. #2}
+\newcommand{\for}[2]{\Pi_{#1}#2}
+
+\newcommand{\bnfdef}{\hspace{0.5cm} ::= \hspace{0.5cm}}
+\newcommand{\alt}{\hspace{0.25cm} | \hspace{0.25cm}}
+
+\newcommand{\bb}{\mathbf}
+\newcommand{\evals}{\rightsquigarrow^{nf}}
+
+\begin{document}
+\begin{mathpar}
+    \infer[Var]
+        {(x, \tau) \in \Gamma}
+        {\Gamma \vdash x : \tau}
+    \and \infer[Const]
+        {(c, \tau) \in \Gamma}
+        {\Gamma \vdash c : \tau}
+    \and \infer[MetaVar]
+        {(M, \tau) \in \Gamma}
+        {\Gamma \vdash M : \tau}
+    \and \infer[Lam]
+        {\Gamma, (x, \tau_0) \vdash e : \tau_1}
+        {\Gamma \vdash \lambda x. e : \tau_0 \to \tau_1}
+    \and \infer[Forall]
+        {\Gamma, (x, \tau) \vdash e : \prop}
+        {\Gamma \vdash \Pi_{x : \tau} e : \prop}
+    \and \infer[App]
+        {\Gamma \vdash e_0 : \tau_0 \to \tau_1
+        \\\Gamma \vdash e_1 : \tau_0}
+        {\Gamma \vdash e_0 e_1 : \tau_1}
+    \and \infer[Imp]
+        {\Gamma \vdash e_0 : \prop
+        \\\Gamma \vdash e_1 : \prop}
+        {\Gamma \vdash e_0 \Rightarrow e_1 : \prop}
+    \and \infer[Let]
+        {\Gamma \vdash e_0 : \tau_0
+        \\\bar{a} = \{a \in \text{free} (\tau_0) : a \notin \text{free} (\Gamma)\}
+        \\\Gamma,(x, \forall \bar{a}. \tau_0) \vdash e_1 : \tau_1}
+        {\Gamma \vdash \text{let $x$ = $e_0$ in $e_1$} : e_1}
+\end{mathpar}
+
+\begin{mathpar}
+    \infer[Axiom]
+        {(a, e) \in \Delta}
+        {\Delta \vdash a : e}
+    \and \infer[ModPon]
+        {\Delta \vdash p_0 : e_0 \Rightarrow e_1
+        \\\Delta \vdash p_1 : e_0}
+        {\Delta \vdash p_0 \$ p_1 : e_1}
+    \and \infer[UniElim]
+        {\Gamma \vdash e_0 : \tau
+        \\\Delta \vdash p : \Pi_{x : \tau} e_1}
+        {\Delta \vdash p[x := e_0] : e_1}
+    \and \infer[Hole]
+        { }
+        {\Delta \vdash \_ : e}
+\end{mathpar}
+\end{document}
