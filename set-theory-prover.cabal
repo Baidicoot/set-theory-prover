@@ -33,7 +33,8 @@ executable set-theory-prover
         Kernel.Eval,
         Kernel.Types,
         Kernel.ProofCheck,
-        Kernel.TypeCheck
+        Kernel.TypeCheck,
+        Command
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

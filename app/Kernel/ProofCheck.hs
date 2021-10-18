@@ -21,6 +21,7 @@ Check.hs - PROOF CHECKING
 This actually checks the proofs
 -}
 
+{- replaces all MetaVars with fresh ones -}
 instThm :: Term -> Infer Term
 instThm t = do
     m <- mapM (\n -> (n,) . MetaVar <$> fresh) (S.toList (free @Term t))
