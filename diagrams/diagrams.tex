@@ -28,6 +28,60 @@
 \newcommand{\evals}{\rightsquigarrow^{nf}}
 
 \begin{document}
+\begin{align*}
+    \bb{M} \bnfdef&
+        x
+        \tag{Type Variables}
+    \\\alt&
+        c
+        \tag{Constant Types}
+    \\\alt&
+        \bb{M} \to \bb{M}
+        \tag{Functions}
+    \\\alt&
+        \prop
+        \tag{Propositions}
+    \\\\\bb{S} \bnfdef&
+        \forall{\bar{x}}, \bb{M}
+        \tag{Type Schemes}
+    \\\\\bb{T} \bnfdef&
+        x
+        \tag{Variables}
+    \\\alt&
+        c
+        \tag{Constants}
+    \\\alt&
+        M
+        \tag{Metavariables}
+    \\\alt&
+        \lambda x, \bb{T}
+        \tag{$\lambda$-Abstractions}
+    \\\alt&
+        \Pi_{x : \bb{M}} \bb{T}
+        \tag{$\forall$-Quantifiers}
+    \\\alt&
+        \bb{T} \bb{T}
+        \tag{Application}
+    \\\alt&
+        \bb{T} \Rightarrow \bb{T}
+        \tag{Implication}
+    \\\alt&
+        \text{let $x$ = $\bb{T}$ in $\bb{T}$}
+        \tag{Let-In}
+    \\\\\bb{P} \bnfdef&
+        a
+        \tag{Axioms}
+    \\\alt&
+        \bb{P} \$ \bb{P}
+        \tag{Modus Ponens}
+    \\\alt&
+        \bb{P}[x := \bb{T}]
+        \tag{Universal Elimination}
+    \\\alt&
+        \_
+        \tag{Holes}
+\end{align*}
+
 \begin{mathpar}
     \infer[Var]
         {(x, \tau) \in \Gamma}

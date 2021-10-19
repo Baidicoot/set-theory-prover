@@ -1,12 +1,29 @@
 module Command where
 import Kernel
 
-import Data.Identity
+import Control.Monad.State
+import Control.Monad.Except
+import qualified Data.Map as M
 
 {- simple imperative metalanguage for manipulating proofs -}
 {- further plans: stepwise execution -}
 
-type Imp = Identity
+data ImpError
+    = UnknownVar Name
+
+type ImpVarState = [M.Map Name CommandVal]
+type Imp = ExceptT ImpError (State ImpVarState)
+
+lookupVar :: Name -> Imp CommandVal
+lookupVar n = do
+    s <- get
+    let lookupAll (m:ms) = case M.lookup n m of
+            Just x -> pure x
+            Nothing -> lookupAll ms
+        lookupAll [] = throwError (UnknownVar n)
+    lookupAll s
+
+data Grammar
 
 data CommandVal
     = Proof Proof
