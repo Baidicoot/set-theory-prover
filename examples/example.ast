@@ -1,9 +1,17 @@
-Type 𝕌.
-Object empty : 𝕌.
-Object image : (𝕌 → 𝕌 → 𝕌 → ℙ) → 𝕌 → 𝕌.
-Axiom image_prop :
-    ∀A : 𝕌, (∀x : 𝕌 ∈ A, ∃!y : 𝕌, ϕ x y A)
-    → (∀y : 𝕌, (y ∈ image ϕ A) ↔ (∃x : 𝕌, ϕ x y A)).
-Object comp : (𝕌 → 𝕌 → ℙ) → 𝕌 → 𝕌.
-Axiom comp_prop :
-    ∀A : 𝕌, ∀x : 𝕌, (x ∈ comp ϕ A) ↔ ((x ∈ A) ∧ (ϕ x A)).
+Sort "Set"
+
+Const("elem","Set -> Set -> Prop")
+Notation("a ∈ b","elem a b")
+
+Const("empty","Set")
+Axiom("empty_set","forall x, ¬(x ∈ empty)")
+
+Const("union","Set -> Set -> Set")
+Axiom("union_prop","forall A B x, x ∈ union A B => (x ∈ a) or (x ∈ b)")
+
+Axiom("eq_set","forall x y, x = y <=> forall z, z ∈ x <=> z ∈ y")
+
+theorem("union_empty_eq","forall x, union x empty = x")
+    intros"x"
+    refine "eq_set[union x empty][x] _"
+    intros "z"
