@@ -13,6 +13,7 @@ import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Except
 
+import Data.Bifunctor (bimap)
 import Data.List (partition)
 
 {- https://en.wikipedia.org/wiki/Left_recursion#Removing_all_left_recursion -}
@@ -33,30 +34,33 @@ rewritePartial :: TreeRewrite -> TreeRewrite
 rewritePartial f xs@(_:_) =
     let (xs',x) = (init xs,last xs)
     in case x of
-        Partial g ys -> (g . (++ys) . (:[])) =<< f xs'
+        Partial g ys -> g . (++ys) . (:[]) =<< f xs'
         _ -> Nothing
 rewritePartial _ _ = Nothing
 
 constructPartial :: TreeRewrite -> TreeRewrite
 constructPartial f = Just . Partial (rewritePartial f)
 
+compose2 :: (a -> b -> c) -> (d -> a) -> (e -> b) -> d -> e -> c
+compose2 f g h x y = f (g x) (h y)
+
+append :: a -> [a] -> [a]
+append x = (++[x])
+
 rmDirectLR :: Name -> [ProdRule] -> ParserGenerator Grammar
 rmDirectLR a prods =
     let (lrec,nonrec) = partition (\case
-            Prod _ (Nonterminal x:_) -> x == a
-            Prod _ _ -> False) prods
-    in case lrec of
-        [] -> pure [(a,nonrec)]
-        _ -> do
+            (_,Nonterminal x:_) -> x == a
+            _ -> False) prods
+    in  if null lrec then
+            pure [(a,nonrec)]
+        else do
             a' <- fresh
             let lrec' =
-                    fmap (\(Prod f (_:xs)) ->
-                        Prod (constructPartial f) (xs ++ [Nonterminal a'])) lrec
-                    ++[emptyRule]
+                    map (bimap constructPartial (append (Nonterminal a') . tail)) lrec
             let nonrec' =
-                    fmap (\(Prod f xs) ->
-                        Prod (rewritePartial f) (xs ++ [Nonterminal a'])) nonrec
-            pure [(a,nonrec'),(a',lrec')]
+                    map (bimap rewritePartial (append (Nonterminal a'))) nonrec
+            pure [(a,nonrec'),(a',append emptyRule lrec')]
 
 combineRewrites :: Int -> TreeRewrite -> TreeRewrite -> TreeRewrite
 combineRewrites l f g xs = do
@@ -64,10 +68,10 @@ combineRewrites l f g xs = do
     f (x:drop l xs)
 
 reduceFirstNonterminal :: Grammar -> ProdRule -> ParserGenerator [ProdRule]
-reduceFirstNonterminal g (Prod f (Nonterminal x:xs)) =
+reduceFirstNonterminal g (f,Nonterminal x:xs) =
     case lookup x g of
-        Just ps -> pure (map (\(Prod g ys) -> Prod (combineRewrites (length ys) f g) (ys ++ xs)) ps)
-        Nothing -> pure [Prod f (Nonterminal x:xs)]
+        Just ps -> pure (map (\(g,ys) -> (combineRewrites (length ys) f g,ys++xs)) ps)
+        Nothing -> pure [(f,Nonterminal x:xs)]
 reduceFirstNonterminal _ x = pure [x]
 
 rmIndirectLR :: Grammar -> Grammar -> ParserGenerator Grammar
@@ -82,9 +86,10 @@ rmIndirectLR done ((a,prods):gs) = do
 next :: Parser Tok
 next = do
     v <- get
-    case V.null v of
-        True -> throwError EndOfInput
-        False -> put (V.tail v) >> pure (V.head v)
+    if V.null v then
+        throwError EndOfInput
+    else
+        put (V.tail v) >> pure (V.head v)
 
 alternatives :: V.Vector Tok -> [Parser a] -> Parser a
 alternatives _ [g] = g
@@ -105,7 +110,7 @@ match t = do
     STok <$> matchTerminal t t'
 
 parseRule :: ProdRule -> Parser SExpr
-parseRule (Prod f xs) = do
+parseRule (f,xs) = do
     toks <- mapM match xs
     case f toks of
         Just s -> pure s
