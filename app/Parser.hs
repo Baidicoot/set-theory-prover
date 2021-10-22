@@ -1,11 +1,13 @@
 {-# LANGUAGE LambdaCase #-}
-module Parser where
+module Parser (parse, elimLeftRec) where
 
 import ParserTypes
+import Tokenize
 
 import qualified Data.Set as S
 import qualified Data.Map as M
 import qualified Data.Vector as V
+import qualified Data.Text as T
 
 import Control.Monad.State
 import Control.Monad.Reader
@@ -29,14 +31,14 @@ fresh = do
 
 rewritePartial :: TreeRewrite -> TreeRewrite
 rewritePartial f xs@(_:_) =
-    let (xs,x) = (init xs,last xs)
+    let (xs',x) = (init xs,last xs)
     in case x of
-        Partial g ys -> g . (++ys) . (:[]) =<< f xs
+        Partial g ys -> (g . (++ys) . (:[])) =<< f xs'
         _ -> Nothing
 rewritePartial _ _ = Nothing
 
 constructPartial :: TreeRewrite -> TreeRewrite
-constructPartial f = rewritePartial $ Just . Partial f
+constructPartial f = Just . Partial (rewritePartial f)
 
 rmDirectLR :: Name -> [ProdRule] -> ParserGenerator Grammar
 rmDirectLR a prods =
@@ -50,9 +52,9 @@ rmDirectLR a prods =
             let lrec' =
                     fmap (\(Prod f (_:xs)) ->
                         Prod (constructPartial f) (xs ++ [Nonterminal a'])) lrec
+                    ++[emptyRule]
             let nonrec' =
-                    emptyRule
-                    :fmap (\(Prod f xs) ->
+                    fmap (\(Prod f xs) ->
                         Prod (rewritePartial f) (xs ++ [Nonterminal a'])) nonrec
             pure [(a,nonrec'),(a',lrec')]
 
@@ -65,7 +67,7 @@ reduceFirstNonterminal :: Grammar -> ProdRule -> ParserGenerator [ProdRule]
 reduceFirstNonterminal g (Prod f (Nonterminal x:xs)) =
     case lookup x g of
         Just ps -> pure (map (\(Prod g ys) -> Prod (combineRewrites (length ys) f g) (ys ++ xs)) ps)
-        Nothing -> throwError (NotNonterminal x)
+        Nothing -> pure [Prod f (Nonterminal x:xs)]
 reduceFirstNonterminal _ x = pure [x]
 
 rmIndirectLR :: Grammar -> Grammar -> ParserGenerator Grammar
@@ -84,12 +86,11 @@ next = do
         True -> throwError EndOfInput
         False -> put (V.tail v) >> pure (V.head v)
 
-alternatives :: [Parser a] -> Parser a
-alternatives [g] = g
-alternatives (f:gs) = do
-    v <- get
-    catchError f (\_ -> put v >> alternatives gs)
-alternatives [] = throwError EmptyAlternative
+alternatives :: V.Vector Tok -> [Parser a] -> Parser a
+alternatives _ [g] = g
+alternatives v (f:gs) = do
+    catchError f (\_ -> put v >> alternatives v gs)
+alternatives _ [] = throwError EmptyAlternative
 
 matchTerminal :: Symbol -> Tok -> Parser Tok
 matchTerminal (Exact t) t' | t == t' = pure t
@@ -101,7 +102,7 @@ match :: Symbol -> Parser SExpr
 match (Nonterminal x) = parseNonterminal x
 match t = do
     t' <- next
-    flip SExpr [] <$> matchTerminal t t'
+    STok <$> matchTerminal t t'
 
 parseRule :: ProdRule -> Parser SExpr
 parseRule (Prod f xs) = do
@@ -114,10 +115,25 @@ parseNonterminal :: Name -> Parser SExpr
 parseNonterminal n = do
     g <- ask
     case lookup n g of
-        Just gs -> alternatives (map parseRule gs)
+        Just gs -> do
+            v <- get
+            alternatives v (map parseRule gs)
         Nothing -> throwError (NotNonterminal n)
 
 {- everything -}
 
 runParserGenerator :: [Name] -> ParserGenerator a -> (Either ParseError a, [Name])
 runParserGenerator s = flip runState s . runExceptT
+
+runParser :: V.Vector Tok -> Grammar -> Parser a -> (Either ParseError a, V.Vector Tok)
+runParser s r = flip runState s . flip runReaderT r . runExceptT
+
+parse :: Grammar -> Name -> T.Text -> Either ParseError SExpr
+parse g n t =
+    let (a,b) = runParser (tokenize t) g (parseNonterminal n)
+    in if not (V.null b) then
+            throwError (LeftoverInput b)
+        else a
+
+elimLeftRec :: [Name] -> Grammar -> (Either ParseError Grammar, [Name])
+elimLeftRec xs g = runParserGenerator xs (rmIndirectLR [] g)

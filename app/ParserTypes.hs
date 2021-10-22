@@ -10,13 +10,17 @@ import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Reader
 
+import Data.List (intercalate)
+
 data ParseError
     = NotNonterminal Name
     | NotTerminal Name
     | NoMatch Symbol Tok
     | NoSExpr [SExpr]
     | EndOfInput
+    | LeftoverInput (V.Vector Tok)
     | EmptyAlternative
+    deriving(Show)
 
 type ParserGenerator = ExceptT ParseError (State [Name])
 
@@ -28,10 +32,14 @@ data Tok
     = Tok TokKind T.Text
     deriving(Eq,Ord)
 
+instance Show Tok where
+    show (Tok k t) = "<" ++ show t ++ "," ++ show k ++ ">"
+
 data TokKind
     = Ident
-    | Oper
-    deriving(Eq,Ord)
+    | Bracket
+    | Symbol
+    deriving(Eq,Ord,Show)
 
 data Symbol
     = Any TokKind
@@ -39,14 +47,28 @@ data Symbol
     | Nonterminal Name
     deriving(Eq,Ord)
 
+instance Show Symbol where
+    show (Any k) = "<" ++ show k ++ ">"
+    show (Exact t) = show t
+    show (Nonterminal x) = T.unpack x
+
 type TreeRewrite = [SExpr] -> Maybe SExpr
 
 data SExpr
-    = SExpr Tok [SExpr]
+    = SExpr Name [SExpr]
+    | STok Tok
     | Partial TreeRewrite [SExpr]
+
+instance Show SExpr where
+    show (STok t) = show t
+    show (SExpr t xs) = "(" ++ show t ++ " " ++ unwords (fmap show xs) ++ ")"
+    show (Partial _ xs) = "(partial " ++ unwords (fmap show xs) ++ ")"
 
 data ProdRule
     = Prod TreeRewrite [Symbol]
+
+instance Show ProdRule where
+    show (Prod _ xs) = unwords (fmap show xs)
 
 emptyRule :: ProdRule
 emptyRule = Prod (const (Just (Partial f []))) []
