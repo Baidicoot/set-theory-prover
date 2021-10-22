@@ -64,14 +64,11 @@ instance Show SExpr where
     show (SExpr t xs) = "(" ++ show t ++ " " ++ unwords (fmap show xs) ++ ")"
     show (Partial _ xs) = "(partial " ++ unwords (fmap show xs) ++ ")"
 
-data ProdRule
-    = Prod TreeRewrite [Symbol]
-
-instance Show ProdRule where
-    show (Prod _ xs) = unwords (fmap show xs)
+type ProdRule
+    = (TreeRewrite, [Symbol])
 
 emptyRule :: ProdRule
-emptyRule = Prod (const (Just (Partial f []))) []
+emptyRule = (const (Just (Partial f [])), [])
     where
         f [x] = Just x
         f _ = Nothing

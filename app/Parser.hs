@@ -41,9 +41,6 @@ rewritePartial _ _ = Nothing
 constructPartial :: TreeRewrite -> TreeRewrite
 constructPartial f = Just . Partial (rewritePartial f)
 
-compose2 :: (a -> b -> c) -> (d -> a) -> (e -> b) -> d -> e -> c
-compose2 f g h x y = f (g x) (h y)
-
 append :: a -> [a] -> [a]
 append x = (++[x])
 
