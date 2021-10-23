@@ -29,22 +29,12 @@ maybe use ~sane~ non-haskellic variable naming scheme
 occurs :: Substitutable Monotype a => Name -> a -> Bool
 occurs n = S.member n . free @Monotype
 
-instance Substitutable Monotype Monotype where
-    subst s (Arr a b) = Arr (subst s a) (subst s b)
-    subst s (TyVar n) = case M.lookup n s of
-        Nothing -> TyVar n
-        Just t -> t
-    subst _ t = t
-    
-    free (Arr a b) = free @Monotype a `S.union` free @Monotype b
-    free (TyVar n) = S.singleton n
-    free _ = S.empty
-
 instance Substitutable Monotype Polytype where
     subst s (Polytype v t) =
         Polytype v (subst (M.filterWithKey (\k _ -> S.member k (M.keysSet s)) s) t)
     free (Polytype v t) = free @Monotype t `S.difference` v
 
+{-
 instance Substitutable Monotype Term where
     subst s (Lam v e) = Lam v (subst s e)
     subst s (Let v t e) = Let v (subst s t) (subst s e)
@@ -59,6 +49,7 @@ instance Substitutable Monotype Term where
     free (Imp a b) = free @Monotype a `S.union` free @Monotype b
     free (Forall _ t e) = free @Monotype t `S.union` free @Monotype e
     free _ = S.empty
+-}
 
 instantiate :: Polytype -> Infer Monotype
 instantiate (Polytype v t) = do

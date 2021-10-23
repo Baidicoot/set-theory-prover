@@ -12,14 +12,13 @@ import qualified Data.Text as T
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Except
+import Data.Foldable (foldlM)
 
 import Data.Bifunctor (bimap)
 import Data.List (partition)
 
 {- https://en.wikipedia.org/wiki/Left_recursion#Removing_all_left_recursion -}
 {- https://www.csd.uwo.ca/~mmorenom/CS447/Lectures/Syntax.html/node8.html -}
-
-{- left-recursion removal -}
 
 fresh :: ParserGenerator Name
 fresh = do
@@ -28,7 +27,7 @@ fresh = do
     put xs
     pure x
 
-{- need to 'bookkeep' -}
+{- tree rewrites to preserve structure after removal of LR -}
 
 rewritePartial :: TreeRewrite -> TreeRewrite
 rewritePartial f xs@(_:_) =
@@ -41,8 +40,15 @@ rewritePartial _ _ = Nothing
 constructPartial :: TreeRewrite -> TreeRewrite
 constructPartial f = Just . Partial (rewritePartial f)
 
+combineRewrites :: Int -> TreeRewrite -> TreeRewrite -> TreeRewrite
+combineRewrites l f g xs = do
+    x <- g (take l xs)
+    f (x:drop l xs)
+
 append :: a -> [a] -> [a]
 append x = (++[x])
+
+{- LR removal -}
 
 rmDirectLR :: Name -> [ProdRule] -> ParserGenerator Grammar
 rmDirectLR a prods =
@@ -50,33 +56,27 @@ rmDirectLR a prods =
             (_,Nonterminal x:_) -> x == a
             _ -> False) prods
     in  if null lrec then
-            pure [(a,nonrec)]
+            pure (M.singleton a nonrec)
         else do
             a' <- fresh
             let lrec' =
                     map (bimap constructPartial (append (Nonterminal a') . tail)) lrec
             let nonrec' =
                     map (bimap rewritePartial (append (Nonterminal a'))) nonrec
-            pure [(a,nonrec'),(a',append emptyRule lrec')]
-
-combineRewrites :: Int -> TreeRewrite -> TreeRewrite -> TreeRewrite
-combineRewrites l f g xs = do
-    x <- g (take l xs)
-    f (x:drop l xs)
+            pure (M.fromList [(a,nonrec'),(a',append emptyRule lrec')])
 
 reduceFirstNonterminal :: Grammar -> ProdRule -> ParserGenerator [ProdRule]
 reduceFirstNonterminal g (f,Nonterminal x:xs) =
-    case lookup x g of
+    case M.lookup x g of
         Just ps -> pure (map (\(g,ys) -> (combineRewrites (length ys) f g,ys++xs)) ps)
         Nothing -> pure [(f,Nonterminal x:xs)]
 reduceFirstNonterminal _ x = pure [x]
 
-rmIndirectLR :: Grammar -> Grammar -> ParserGenerator Grammar
-rmIndirectLR done [] = pure done
-rmIndirectLR done ((a,prods):gs) = do
-    prods' <- concat <$> mapM (reduceFirstNonterminal done) prods
-    done' <- rmDirectLR a prods'
-    rmIndirectLR (done' ++ done) gs
+rmIndirectLR :: Grammar -> ParserGenerator Grammar
+rmIndirectLR = foldlM go M.empty . M.toList
+    where
+        go done (a,prods) = fmap (M.union done) $
+            rmDirectLR a . concat =<< mapM (reduceFirstNonterminal done) prods
 
 {- recursive descent parser -}
 
@@ -116,13 +116,13 @@ parseRule (f,xs) = do
 parseNonterminal :: Name -> Parser SExpr
 parseNonterminal n = do
     g <- ask
-    case lookup n g of
+    case M.lookup n g of
         Just gs -> do
             v <- get
             alternatives v (map parseRule gs)
         Nothing -> throwError (NotNonterminal n)
 
-{- everything -}
+{- everything wrapped up -}
 
 runParserGenerator :: [Name] -> ParserGenerator a -> (Either ParseError a, [Name])
 runParserGenerator s = flip runState s . runExceptT
@@ -138,4 +138,4 @@ parse g n t =
         else a
 
 elimLeftRec :: [Name] -> Grammar -> (Either ParseError Grammar, [Name])
-elimLeftRec xs g = runParserGenerator xs (rmIndirectLR [] g)
+elimLeftRec xs g = runParserGenerator xs (rmIndirectLR g)

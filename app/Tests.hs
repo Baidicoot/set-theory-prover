@@ -4,14 +4,15 @@ module Tests where
 import Parser
 import ParserTypes
 import qualified Data.Text as T
+import qualified Data.Map as M
 
 names :: [Name]
 names = map (T.pack . ("X"++) . show) [0..] 
 
 identAddition :: Grammar
-identAddition = [("X",
-    [ Prod mkExp [Nonterminal "X",Exact (Tok Symbol "+"),Nonterminal "X"]
-    , Prod mkExp [Any Ident]])]
+identAddition = M.fromList [("X",
+    [(mkExp,[Nonterminal "X",Exact (Tok Symbol "+"),Nonterminal "X"])
+    ,(mkExp,[Any Ident])])]
     where
         mkExp = Just . SExpr "X"
 

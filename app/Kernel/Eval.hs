@@ -1,6 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
-module Kernel.Eval (simpObj, unifyObj, substObj) where
+module Kernel.Eval (simpObj, unifyObj, SubstDeBrujin(..)) where
 
 import Kernel.Types
 import Kernel.Subst
@@ -151,16 +151,29 @@ deBrujinToTerm ns (DImp e0 e1) = do
 deBrujinToTerm _ (DConst n) = pure (Const n)
 deBrujinToTerm _ (DHole n) = pure (MetaVar n)
 
-substObj :: DeBrujinSubst -> [Name] -> Term -> Infer Term
-substObj s ns (MetaVar n) = case M.lookup n s of
-        Just e -> deBrujinToTerm ns e
-        Nothing -> pure (MetaVar n)
-substObj s ns (Lam n e) = Lam n <$> substObj s (n:ns) e
-substObj s ns (Let n e0 e1) = liftM2 (Let n) (substObj s ns e0) (substObj s (n:ns) e1)
-substObj s ns (App e0 e1) =  liftM2 App (substObj s ns e0) (substObj s ns e1)
-substObj s ns (Imp e0 e1) = liftM2 Imp (substObj s ns e0) (substObj s ns e1)
-substObj s ns (Forall n t e) = Forall n t <$> substObj s (n:ns) e
-substObj _ _ x = pure x
+{- factor into typeclass -}
+class SubstDeBrujin t where
+    substObj :: DeBrujinSubst -> t -> Infer t
+
+instance SubstDeBrujin Term where
+    substObj s (MetaVar n) = case M.lookup n s of
+            Just e -> deBrujinToTerm [] e
+            Nothing -> pure (MetaVar n)
+    substObj s (Lam n e) = Lam n <$> substObj s e
+    substObj s (Let n e0 e1) = liftM2 (Let n) (substObj s e0) (substObj s e1)
+    substObj s (App e0 e1) =  liftM2 App (substObj s e0) (substObj s e1)
+    substObj s (Imp e0 e1) = liftM2 Imp (substObj s e0) (substObj s e1)
+    substObj s (Forall n t e) = Forall n t <$> substObj s e
+    substObj _ x = pure x
+
+{-
+this requires UndecidableInstances:
+instance Container a Term => SubstDeBrujin a where
+so it needs to be done manually:
+-}
+
+instance SubstDeBrujin Proof where
+    substObj = mapC . (substObj :: DeBrujinSubst -> Term -> Infer Term)
 
 simpObj :: ObjCtx -> Term -> Infer Term
 simpObj ctx t =

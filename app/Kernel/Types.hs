@@ -82,6 +82,8 @@ data Polytype
 
 data Proof
     = ModPon Proof Proof
+    | IntrosThm Name Proof
     | UniElim Proof Term
+    | IntrosObj Name Proof
     | Axiom Name
     | Hole

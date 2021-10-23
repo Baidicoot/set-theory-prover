@@ -73,4 +73,4 @@ emptyRule = (const (Just (Partial f [])), [])
         f [x] = Just x
         f _ = Nothing
 
-type Grammar = [(Name,[ProdRule])]
+type Grammar = M.Map Name [ProdRule]

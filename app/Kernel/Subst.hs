@@ -11,6 +11,8 @@ import qualified Data.Text as T
 import Control.Monad
 import Control.Monad.State
 import Control.Monad.Except
+import Control.Monad.Identity
+import Control.Monad.Writer
 
 import Kernel.Types
 
@@ -42,3 +44,64 @@ instance Substitutable a b => Substitutable a (Maybe b) where
 instance Substitutable a b => Substitutable a (M.Map c b) where
     subst s m = fmap (subst s) m
     free m = S.unions (M.elems $ fmap (free @a) m)
+
+class Container a b where
+    mapC :: Monad m => (b -> m b) -> a -> m a
+
+instance Container Proof Term where
+    mapC f (ModPon a b) = liftM2 ModPon (mapC f a) (mapC f b)
+    mapC f (UniElim p t) = liftM2 UniElim (mapC f p) (f t)
+    mapC f (IntrosObj n p) = fmap (IntrosObj n) (mapC f p)
+    mapC f (IntrosThm n p) = fmap (IntrosThm n) (mapC f p)
+    mapC _ x = pure x
+
+instance Container Term Monotype where
+    mapC f (Lam n e) = fmap (Lam n) (mapC f e)
+    mapC f (Let n e0 e1) = liftM2 (Let n) (mapC f e0) (mapC f e1)
+    mapC f (App e0 e1) = liftM2 App (mapC f e0) (mapC f e1)
+    mapC f (Imp e0 e1) = liftM2 App (mapC f e0) (mapC f e1)
+    mapC f (Forall n t e) = liftM2 (Forall n) (f t) (mapC f e)
+    mapC _ x = pure x
+
+instance Substitutable Monotype Monotype where
+    subst s (Arr a b) = Arr (subst s a) (subst s b)
+    subst s (TyVar n) = case M.lookup n s of
+        Nothing -> TyVar n
+        Just t -> t
+    subst _ t = t
+    
+    free (Arr a b) = free @Monotype a `S.union` free @Monotype b
+    free (TyVar n) = S.singleton n
+    free _ = S.empty
+
+{-
+unfortunately, (Container a b,Container b c) => Container a c
+and (Container a c,Substitutable b c) => Substitutable b a
+require UndecidableInstances, so they have to be done manually:
+-}
+
+instance Container Proof Monotype where
+    mapC = mapC . (mapC :: Monad m => (Monotype -> m Monotype) -> Term -> m Term)
+
+instance Substitutable Monotype Term where
+    subst s = runIdentity .
+        (mapC :: (Monotype -> Identity Monotype) -> Term -> Identity Term) (Identity . subst s)
+    free = execWriter .
+        (mapC :: (Monotype -> Writer (S.Set Name) Monotype) -> Term -> Writer (S.Set Name) Term)
+        (\c -> tell (free @Monotype c) >> pure c)
+
+instance Substitutable Monotype Proof where
+    subst s = runIdentity .
+        (mapC :: (Monotype -> Identity Monotype) -> Proof -> Identity Proof) (Identity . subst s)
+    free = execWriter .
+        (mapC :: (Monotype -> Writer (S.Set Name) Monotype) -> Proof -> Writer (S.Set Name) Proof)
+        (\c -> tell (free @Monotype c) >> pure c)
+
+{-
+instance (Container a c,Substitutable b c) => Substitutable b a where
+    subst s = runIdentity .
+        (mapC :: (c -> Identity c) -> a -> Identity a) (Identity . subst s)
+    free = execWriter .
+        (mapC :: (c -> Writer (S.Set Name) c) -> a -> Writer (S.Set Name) a)
+        (\c -> tell (free @b c) >> pure c)
+-}
