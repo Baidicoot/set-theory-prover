@@ -63,6 +63,13 @@ instance Container Term Monotype where
     mapC f (Forall n t e) = liftM2 (Forall n) (f t) (mapC f e)
     mapC _ x = pure x
 
+instance Container DeBrujin Monotype where
+    mapC f (DLam d) = mapC f d
+    mapC f (DApp d0 d1) = liftM2 DApp (mapC f d0) (mapC f d1)
+    mapC f (DImp d0 d1) = liftM2 DImp (mapC f d0) (mapC f d1)
+    mapC f (DAll t d) = liftM2 DAll (f t) (mapC f d)
+    mapC _ x = pure x
+
 instance Substitutable Monotype Monotype where
     subst s (Arr a b) = Arr (subst s a) (subst s b)
     subst s (TyVar n) = case M.lookup n s of
@@ -95,6 +102,13 @@ instance Substitutable Monotype Proof where
         (mapC :: (Monotype -> Identity Monotype) -> Proof -> Identity Proof) (Identity . subst s)
     free = execWriter .
         (mapC :: (Monotype -> Writer (S.Set Name) Monotype) -> Proof -> Writer (S.Set Name) Proof)
+        (\c -> tell (free @Monotype c) >> pure c)
+
+instance Substitutable Monotype DeBrujin where
+    subst s = runIdentity .
+        (mapC :: (Monotype -> Identity Monotype) -> DeBrujin -> Identity DeBrujin) (Identity . subst s)
+    free = execWriter .
+        (mapC :: (Monotype -> Writer (S.Set Name) Monotype) -> DeBrujin -> Writer (S.Set Name) DeBrujin)
         (\c -> tell (free @Monotype c) >> pure c)
 
 {-
