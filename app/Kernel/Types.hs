@@ -12,8 +12,9 @@ type Name = T.Text
 
 type MetaVarTypes = M.Map Name Monotype
 type TypeCtx = M.Map Name Polytype
-type ObjCtx = M.Map Name (DeBrujin,Polytype)
+type ObjCtx = M.Map Name Polytype
 type ThmCtx = M.Map Name Term
+type DefCtx = M.Map Name DeBrujin
 
 names :: [Name]
 names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
@@ -32,6 +33,7 @@ data ProofError
     | UnknownAxiom Name
     | UnknownConst Name
     | UnscopedDeBrujin Int
+    | CantInferHigherOrder Name Proof
 
 type Infer = ExceptT ProofError (State ([Name], MetaVarTypes))
 

@@ -4,7 +4,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-module Kernel.TypeCheck (inferObj, unifyTyp) where
+module Kernel.TypeCheck (inferObj, unifyTyp, checkObj) where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -138,7 +138,7 @@ inferObj ctx (MetaVar x) = do
 inferObj ctx (Let x e0 e1) = do
     (s0, t) <- inferObj ctx e0
     let t' = generalize (subst s0 ctx) t
-    (s1, t1) <- inferObj (M.insert x t' ctx) (subst s0 e1)
+    (s1, t1) <- inferObj (M.insert x t' (subst s0 ctx)) (subst s0 e1)
     pure (s1<+s0, t1)
 inferObj ctx (App e0 e1) = do
     (s0, t0) <- inferObj ctx e0
@@ -149,10 +149,16 @@ inferObj ctx (App e0 e1) = do
 inferObj ctx (Imp e0 e1) = do
     (s0, t0) <- inferObj ctx e0
     s0' <- unifyTyp t0 Prop
-    (s1, t1) <- inferObj ctx (subst (s0<+s0') e1)
+    (s1, t1) <- inferObj (subst (s0<+s0') ctx) (subst (s0<+s0') e1)
     s1' <- unifyTyp (subst (s0<+s0') t1) Prop
     pure (s1<+s1'<+s0<+s0', Prop)
 inferObj ctx (Forall x t e) = do
     (s, t') <- inferObj (M.insert x (Polytype S.empty t) ctx) e
     s' <- unifyTyp t' Prop
     pure (s<+s', Prop)
+
+checkObj :: TypeCtx -> Term -> Monotype -> Infer TypeSubst
+checkObj ctx e t = do
+    (s0,t') <- inferObj ctx e
+    s1 <- unifyTyp (subst s0 t) t'
+    pure (s1<+s0)

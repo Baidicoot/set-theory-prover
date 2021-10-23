@@ -1,5 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE FlexibleInstances #-}
 module Kernel.Eval (simpObj, unifyObj, SubstDeBrujin(..)) where
 
 import Kernel.Types
@@ -14,6 +15,8 @@ import qualified Data.Set as S
 
 import Control.Monad
 import Control.Monad.Except
+
+import Data.Maybe (fromMaybe)
 
 {-
 Kernel.Eval - equality checking between type-erased normal forms
@@ -84,22 +87,22 @@ reduceWhnfDeBrujin requires at least one reduction
 whnfDeBrujin does not require any reduction
 -}
 
-reduceWhnfDeBrujin :: ObjCtx -> DeBrujin -> Maybe DeBrujin
+reduceWhnfDeBrujin :: DefCtx -> DeBrujin -> Maybe DeBrujin
 reduceWhnfDeBrujin ctx (DApp f x) =
     case whnfDeBrujin ctx f of
       DLam d -> Just $ whnfDeBrujin ctx (substDeBrujin 0 x d)
       _ -> Nothing
-reduceWhnfDeBrujin ctx (DConst n) = fst <$> M.lookup n ctx
+reduceWhnfDeBrujin ctx (DConst n) = M.lookup n ctx
 reduceWhnfDeBrujin _ _ = Nothing
 
-whnfDeBrujin :: ObjCtx -> DeBrujin -> DeBrujin
+whnfDeBrujin :: DefCtx -> DeBrujin -> DeBrujin
 whnfDeBrujin ctx (DApp f x) = case whnfDeBrujin ctx f of
     DLam d -> whnfDeBrujin ctx (substDeBrujin 0 x d)
     x -> x
-whnfDeBrujin ctx (DConst n) = maybe (DConst n) fst (M.lookup n ctx)
+whnfDeBrujin ctx (DConst n) = fromMaybe (DConst n) (M.lookup n ctx)
 whnfDeBrujin _ x = x
 
-unifyD :: ObjCtx -> DeBrujin -> DeBrujin -> Infer (DeBrujinSubst, TypeSubst)
+unifyD :: DefCtx -> DeBrujin -> DeBrujin -> Infer (DeBrujinSubst, TypeSubst)
 unifyD ctx x y | x == y = pure (M.empty, M.empty)
 unifyD ctx (DLam a) (DLam b) = unifyD ctx a b
 unifyD ctx (DAll t a) (DAll u b) = unifyTyp t u >> unifyD ctx a b
@@ -155,6 +158,13 @@ deBrujinToTerm _ (DHole n) = pure (MetaVar n)
 class SubstDeBrujin t where
     substObj :: DeBrujinSubst -> t -> Infer t
 
+instance (Traversable t,SubstDeBrujin a) => SubstDeBrujin (t a) where
+    substObj = traverse . substObj
+
+{- dummy instance -}
+instance SubstDeBrujin Polytype where
+    substObj _ t = pure t
+
 instance SubstDeBrujin Term where
     substObj s (MetaVar n) = case M.lookup n s of
             Just e -> deBrujinToTerm [] e
@@ -166,6 +176,9 @@ instance SubstDeBrujin Term where
     substObj s (Forall n t e) = Forall n t <$> substObj s e
     substObj _ x = pure x
 
+instance SubstDeBrujin DeBrujin where
+    substObj s = pure . subst s
+
 {-
 this requires UndecidableInstances:
 instance Container a Term => SubstDeBrujin a where
@@ -175,12 +188,12 @@ so it needs to be done manually:
 instance SubstDeBrujin Proof where
     substObj = mapC . (substObj :: DeBrujinSubst -> Term -> Infer Term)
 
-simpObj :: ObjCtx -> Term -> Infer Term
+simpObj :: DefCtx -> Term -> Infer Term
 simpObj ctx t =
     let d = termToDeBrujin M.empty t in
     deBrujinToTerm [] (whnfDeBrujin ctx d)
 
-unifyObj :: ObjCtx -> Term -> Term -> Infer (DeBrujinSubst, TypeSubst)
+unifyObj :: DefCtx -> Term -> Term -> Infer (DeBrujinSubst, TypeSubst)
 unifyObj ctx t0 t1 = do
     let d0 = termToDeBrujin M.empty t0
     let d1 = termToDeBrujin M.empty t1

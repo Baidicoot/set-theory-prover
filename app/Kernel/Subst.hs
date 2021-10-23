@@ -41,9 +41,9 @@ instance Substitutable a b => Substitutable a (Maybe b) where
     free (Just b) = free @a b
     free Nothing = S.empty
 
-instance Substitutable a b => Substitutable a (M.Map c b) where
+instance (Foldable t, Functor t, Substitutable a b) => Substitutable a (t b) where
     subst s m = fmap (subst s) m
-    free m = S.unions (M.elems $ fmap (free @a) m)
+    free m = S.unions (fmap (free @a) m)
 
 class Container a b where
     mapC :: Monad m => (b -> m b) -> a -> m a
