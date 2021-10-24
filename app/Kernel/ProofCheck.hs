@@ -119,13 +119,12 @@ inferThm ctx (UniElim p0 e0) = do
     (s0,t0) <- inferObj M.empty e0
     (e1,h,f1) <- inferThm ctx p0
     ctx <- updateCtx f1 ctx
-    x' <- fresh
-    t' <- TyVar <$> fresh
-    e' <- MetaVar <$> fresh
-    f2 <- unifyObj (trd3 ctx) e1 (Forall x' t' e')
-    e0' <- substFull f1 e0
-    e2 <- substFull f2 (App (Lam x' e') e0')
-    pure (e2,h,composeFull f2 f1)
+    e1' <- simpObj (trd3 ctx) e1
+    case e1' of
+        Forall x t e -> do
+            e0' <- substFull f1 e0
+            pure (App (Lam x e) e0',h,f1)
+        _ -> throwError (NotForall p0 e0)
 {- maybe replace this with something that attempts to? -}
 inferThm ctx (IntrosObj n t p) = throwError (CantInferHigherOrder n p)
 inferThm ctx Hole = (,[],(M.empty,M.empty)) . MetaVar <$> fresh
