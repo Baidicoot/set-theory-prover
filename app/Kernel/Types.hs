@@ -58,6 +58,7 @@ data DeBrujin
     | DImp DeBrujin DeBrujin
     | DConst Name
     | DHole Name
+    | DFree Name
     deriving(Eq)
 
 data Term
@@ -84,8 +85,8 @@ data Polytype
 
 data Proof
     = ModPon Proof Proof
-    | IntrosThm Name Proof
+    | IntrosThm Name Term Proof
     | UniElim Proof Term
-    | IntrosObj Name Proof
+    | IntrosObj Name Monotype Proof
     | Axiom Name
     | Hole

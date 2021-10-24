@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Kernel.Subst where
@@ -51,8 +52,8 @@ class Container a b where
 instance Container Proof Term where
     mapC f (ModPon a b) = liftM2 ModPon (mapC f a) (mapC f b)
     mapC f (UniElim p t) = liftM2 UniElim (mapC f p) (f t)
-    mapC f (IntrosObj n p) = fmap (IntrosObj n) (mapC f p)
-    mapC f (IntrosThm n p) = fmap (IntrosThm n) (mapC f p)
+    mapC f (IntrosObj n t p) = fmap (IntrosObj n t) (mapC f p)
+    mapC f (IntrosThm n t p) = liftM2 (IntrosThm n) (f t) (mapC f p)
     mapC _ x = pure x
 
 instance Container Term Monotype where

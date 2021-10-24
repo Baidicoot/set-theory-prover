@@ -70,10 +70,16 @@
         \tag{Let-In}
     \\\\\bb{P} \bnfdef&
         a
-        \tag{Axioms}
+        \tag{Axioms \& Variables}
+    \\\alt&
+        \lambda (x : \bb{T}), \bb{P}
+        \tag{Implication Introduction}
     \\\alt&
         \bb{P} \$ \bb{P}
         \tag{Modus Ponens}
+    \\\alt&
+        \lambda (x : \bb{S}), \bb{P}
+        \tag{Universal Introduction}
     \\\alt&
         \bb{P}[x := \bb{T}]
         \tag{Universal Elimination}

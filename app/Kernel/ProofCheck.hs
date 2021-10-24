@@ -11,6 +11,8 @@ import Control.Monad
 import Control.Monad.Writer
 import Control.Monad.Except
 
+import Data.Maybe (fromMaybe)
+
 import Kernel.Types
 import Kernel.Eval
 import Kernel.Subst
@@ -62,7 +64,7 @@ instThm t = do
     pure (subst (M.fromList m) t)
 
 checkThm :: Ctx -> Term -> Proof -> Infer ([Term], FullSubst)
-checkThm ctx e0 (IntrosThm n p) = do
+checkThm ctx e0 (IntrosThm n t p) = do
     e1 <- MetaVar <$> fresh
     e2 <- MetaVar <$> fresh
     f0 <- unifyObj (trd3 ctx) e0 (Imp e1 e2)
@@ -70,16 +72,23 @@ checkThm ctx e0 (IntrosThm n p) = do
     e1' <- substFull f0 e1
     e2' <- substFull f0 e2
     (h,f1) <- checkThm (addThm n e1' ctx) e2' p
-    pure (h,composeFull f1 f0)
-checkThm ctx e0 (IntrosObj n p) = do
+    ctx <- updateCtx f1 ctx
+    e1'' <- substFull f1 e1'
+    f2 <- unifyObj (trd3 ctx) e1'' t
+    pure (h,composeFull f2 (composeFull f1 f0))
+checkThm ctx e0 (IntrosObj n t p) = do
     t0 <- TyVar <$> fresh
     e1 <- MetaVar <$> fresh
     x' <- fresh
     f0 <- unifyObj (trd3 ctx) e0 (Forall x' t0 e1)
     ctx <- updateCtx f0 ctx
     e1' <- substFull f0 e1
-    (h,f1) <- checkThm (addObj n (Polytype S.empty (subst (snd f0) t0)) ctx) e1' p
-    pure (h,composeFull f1 f0)
+    let t0' = subst (snd f0) t0
+    (h,f1) <- checkThm (addObj n (Polytype S.empty t0') ctx) e1' p
+    ctx <- updateCtx f1 ctx
+    let t0'' = subst (snd f1) t0'
+    f2 <- (mempty,) <$> unifyTyp t0'' t
+    pure (h,composeFull f2 (composeFull f1 f0))
 checkThm ctx e0 p = do
     (e1,h,f0) <- inferThm ctx p
     e0' <- substFull f0 e0
@@ -88,7 +97,7 @@ checkThm ctx e0 p = do
 
 inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
 inferThm ctx (Axiom n) = case M.lookup n (fst3 ctx) of
-    Just t -> (,[],(M.empty,M.empty)) <$> instThm t
+    Just t -> (,[],mempty) <$> instThm t
     Nothing -> throwError (UnknownAxiom n)
 inferThm ctx (ModPon p0 p1) = do
     (e0,h0,f0) <- inferThm ctx p0
@@ -101,7 +110,7 @@ inferThm ctx (ModPon p0 p1) = do
     f2 <- unifyObj (trd3 ctx) e0' (Imp e1 e')
     e2 <- substFull f2 e'
     pure (e2,h0++h1,composeFull f2 (composeFull f1 f0))
-inferThm ctx (IntrosThm n p) = do
+inferThm ctx (IntrosThm n t p) = do
     e0 <- MetaVar <$> fresh
     (e1,h,f1) <- inferThm (addThm n e0 ctx) p
     e0' <- substFull f1 e0
@@ -114,9 +123,9 @@ inferThm ctx (UniElim p0 e0) = do
     t' <- TyVar <$> fresh
     e' <- MetaVar <$> fresh
     f2 <- unifyObj (trd3 ctx) e1 (Forall x' t' e')
-    e2 <- substFull f2 e'
-    {- need to subst e0 into e' in place of x' -}
+    e0' <- substFull f1 e0
+    e2 <- substFull f2 (App (Lam x' e') e0')
     pure (e2,h,composeFull f2 f1)
 {- maybe replace this with something that attempts to? -}
-inferThm ctx (IntrosObj n p) = throwError (CantInferHigherOrder n p)
+inferThm ctx (IntrosObj n t p) = throwError (CantInferHigherOrder n p)
 inferThm ctx Hole = (,[],(M.empty,M.empty)) . MetaVar <$> fresh

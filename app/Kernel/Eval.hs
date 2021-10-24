@@ -1,6 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Kernel.Eval (simpObj, unifyObj, SubstDeBrujin(..)) where
 
 import Kernel.Types
@@ -102,8 +103,13 @@ whnfDeBrujin ctx (DApp f x) = case whnfDeBrujin ctx f of
 whnfDeBrujin ctx (DConst n) = fromMaybe (DConst n) (M.lookup n ctx)
 whnfDeBrujin _ x = x
 
+occurs :: Substitutable DeBrujin b => Name -> b -> Bool
+occurs n = S.member n . free @DeBrujin
+
 unifyD :: DefCtx -> DeBrujin -> DeBrujin -> Infer (DeBrujinSubst, TypeSubst)
-unifyD ctx x y | x == y = pure (M.empty, M.empty)
+unifyD ctx x y | x == y = pure mempty
+unifyD ctx (DHole x) y | not (occurs x y) = pure (M.singleton x y,mempty)
+unifyD ctx y (DHole x) | not (occurs x y) = pure (M.singleton x y,mempty)
 unifyD ctx (DLam a) (DLam b) = unifyD ctx a b
 unifyD ctx (DAll t a) (DAll u b) = unifyTyp t u >> unifyD ctx a b
 unifyD ctx (DImp a b) (DImp c d) = do
@@ -153,6 +159,7 @@ deBrujinToTerm ns (DImp e0 e1) = do
     pure (Imp e0' e1')
 deBrujinToTerm _ (DConst n) = pure (Const n)
 deBrujinToTerm _ (DHole n) = pure (MetaVar n)
+deBrujinToTerm _ (DFree n) = pure (Var n)
 
 {- factor into typeclass -}
 class SubstDeBrujin t where
