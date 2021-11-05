@@ -16,7 +16,7 @@ data NameLevel
     = Sort
     | Obj
     | Prf
-    deriving(Eq)
+    deriving(Eq,Show)
 
 data ParseError
     = NotNonterminal Name
