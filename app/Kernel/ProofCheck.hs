@@ -99,6 +99,9 @@ inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
 inferThm ctx (Axiom n) = case M.lookup n (fst3 ctx) of
     Just t -> (,[],mempty) <$> instThm t
     Nothing -> throwError (UnknownAxiom n)
+inferThm ctx (Param n) = case M.lookup n (fst3 ctx) of
+    Just t -> (,[],mempty) <$> instThm t
+    Nothing -> throwError (UnknownAxiom n)
 inferThm ctx (ModPon p0 p1) = do
     (e0,h0,f0) <- inferThm ctx p0
     p1' <- substFull f0 p1

@@ -89,4 +89,5 @@ data Proof
     | UniElim Proof Term
     | IntrosObj Name Monotype Proof
     | Axiom Name
+    | Param Name
     | Hole
