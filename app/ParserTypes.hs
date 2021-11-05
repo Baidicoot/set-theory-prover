@@ -12,6 +12,12 @@ import Control.Monad.Reader
 
 import Data.List (intercalate)
 
+data NameLevel
+    = Sort
+    | Obj
+    | Prf
+    deriving(Eq)
+
 data ParseError
     = NotNonterminal Name
     | NotTerminal Name
@@ -20,6 +26,9 @@ data ParseError
     | EndOfInput
     | LeftoverInput (V.Vector Tok)
     | EmptyAlternative
+    | ElabError SExpr String
+    | ScopeError Name
+    | NamespaceError Name NameLevel NameLevel
     deriving(Show)
 
 type ParserGenerator = ExceptT ParseError (State [Name])
