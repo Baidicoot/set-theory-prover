@@ -78,11 +78,6 @@ substDeBrujin i st (DAll m b) = DAll m (substDeBrujin (i+1) (shiftVars (+1) 0 st
 substDeBrujin i st (DImp f a) = DImp (substDeBrujin i st f) (substDeBrujin i st a)
 substDeBrujin _ _ x = x
 
-isConstApp :: DeBrujin -> Bool
-isConstApp (DConst _) = True
-isConstApp (DApp f _) = isConstApp f
-isConstApp _ = False
-
 {-
 reduceWhnfDeBrujin requires at least one reduction
 whnfDeBrujin does not require any reduction
