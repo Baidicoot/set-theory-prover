@@ -7,8 +7,19 @@ import Foreign.Ptr
 
 import Kernel
 
+import qualified Foreign.Lua as Lua
+
 newtype ConstObjs = ConstObjs (M.Map Name Monotype)
 newtype DefinedObjs = DefObjs (M.Map Name (Monotype,DeBrujin))
 newtype ConstSorts = Sorts (S.Set Name)
 newtype Axioms = Axioms (M.Map Name DeBrujin)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
+
+{- references to IORef through CLOSURES! -}
+
+{-
+-- i.e.
+main = do
+    x <- newIORef mempty
+    Lua.registerHaskellFunction "reduce" (reduce x)
+-}
