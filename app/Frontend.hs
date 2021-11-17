@@ -20,6 +20,10 @@ type State = (Env, Maybe Proof)
 
 refine :: State -> Proof -> Lua State
 
+beginProof :: State -> Text -> Prop -> Lua State
+
+endProof :: State -> Lua State
+
 parseProof :: State -> Text -> Lua Proof
 
 parseSort :: State -> Text -> Lua Monotype
@@ -35,6 +39,10 @@ assertExt :: IORef State -> Text -> Text -> Lua ()
 newSortExt :: IORef State -> Text -> Lua ()
 
 notationExt :: IORef State -> Text -> Text -> Lua ()
+
+beginProofExt :: IORef State -> Text -> Text -> Lua ()
+
+endProofExt :: IORef State -> Lua ()
 
 {- references to IORef through CLOSURES! -}
 
