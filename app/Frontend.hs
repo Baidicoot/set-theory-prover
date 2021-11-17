@@ -15,6 +15,27 @@ newtype ConstSorts = Sorts (S.Set Name)
 newtype Axioms = Axioms (M.Map Name DeBrujin)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
+-- environment, current proof (if applicable)
+type State = (Env, Maybe Proof)
+
+refine :: State -> Proof -> Lua State
+
+parseProof :: State -> Text -> Lua Proof
+
+parseSort :: State -> Text -> Lua Monotype
+
+parseProp :: State -> Text -> Lua Term
+
+parseProd :: State -> Text -> Text -> Lua ProdRule
+
+refineExt :: IORef State -> Text -> Lua ()
+
+assertExt :: IORef State -> Text -> Text -> Lua ()
+
+newSortExt :: IORef State -> Text -> Lua ()
+
+notationExt :: IORef State -> Text -> Text -> Lua ()
+
 {- references to IORef through CLOSURES! -}
 
 {-

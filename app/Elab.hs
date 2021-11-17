@@ -103,3 +103,28 @@ elabTerm x = do
       Local -> pure (Var n)
       Global -> pure (Const n)
       Implicit -> pure (MetaVar n)
+
+elabProof :: SExpr -> Elaborator Proof
+elabProof (SExpr "introsThm" [x,y]) = do
+    n <- elabIdent x
+    (n', y') <- freshen n Local Prf (elabProof y)
+    pure (IntrosThm n' y')
+elabProof (SExpr "introsObj" [x,y]) = do
+    n <- elabIdent x
+    (n', y') <- freshen n Local Obj (elabProof y)
+    pure (IntrosObj n' y')
+elabProof (SExpr "modPon" [x,y]) = do
+    x' <- elabProof x
+    y' <- elabProof y
+    pure (ModPon x' y')
+elabProof (SExpr "uniElim" [x,y]) = do
+    x' <- elabProof x
+    y' <- elabProp y
+    pure (UniElim x' y')
+elabProof (SExpr "hole" []) = pure Hole
+elabProof x = do
+    (n,o) <- elabBound x Prf
+    case o of
+        Local -> pure (Param n)
+        Implicit -> error "UNREACHABLE"
+        Global -> pure (Axiom n)
