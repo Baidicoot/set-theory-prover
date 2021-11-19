@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 module ParserTypes where
 
 import qualified Data.Text as T
@@ -17,6 +18,11 @@ data NameLevel
     | Obj
     | Prf
     deriving(Eq,Show)
+
+data NameOrigin
+    = Local
+    | Global
+    | Implicit
 
 data ParseError
     = NotNonterminal Name
@@ -83,3 +89,8 @@ emptyRule = (const (Just (Partial f [])), [])
         f _ = Nothing
 
 type Grammar = M.Map Name [ProdRule]
+
+nt_PROOF, nt_SORT, nt_PROP :: Name
+nt_PROOF = "PROOF"
+nt_SORT = "SORT"
+nt_PROP = "PROP"

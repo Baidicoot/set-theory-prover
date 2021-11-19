@@ -8,18 +8,13 @@ import ParserTypes
 import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.Writer
 
 import qualified Data.Map as M
 
 {- elaboration of parse trees into Kernel.Types structures -}
 
-data NameOrigin
-    = Local
-    | Global
-    | Implicit
-
-type Namespace = M.Map Name (Name, NameOrigin, NameLevel)
-type ElabCtx = Namespace
+type ElabCtx = M.Map Name (Name, NameOrigin, NameLevel)
 
 lookupIdent :: Name -> NameLevel -> Elaborator (Name, NameOrigin)
 lookupIdent n l = do
@@ -29,7 +24,8 @@ lookupIdent n l = do
         Just (_, _, l') -> throwError (NamespaceError n l l')
         Nothing -> throwError (ScopeError n)
 
-type Elaborator = ExceptT ParseError (ReaderT ElabCtx (State [Name]))
+-- writes contexts for each hole
+type Elaborator = ExceptT ParseError (WriterT [ElabCtx] (ReaderT ElabCtx (State [Name])))
 
 fresh :: Elaborator Name
 fresh = do
@@ -121,10 +117,16 @@ elabProof (SExpr "uniElim" [x,y]) = do
     x' <- elabProof x
     y' <- elabProp y
     pure (UniElim x' y')
-elabProof (SExpr "hole" []) = pure Hole
+elabProof (SExpr "hole" []) = do
+    ctx <- ask
+    tell [ctx]
+    pure Hole
 elabProof x = do
     (n,o) <- elabBound x Prf
     case o of
         Local -> pure (Param n)
         Implicit -> error "UNREACHABLE"
         Global -> pure (Axiom n)
+
+runElaborator :: [Name] -> ElabCtx -> Elaborator a -> ((Either ParseError a, [Name]), [ElabCtx])
+runElaborator n c = flip runState n . flip runReaderT c . runWriterT . runExceptT
