@@ -16,7 +16,7 @@ newtype Axioms = Axioms (M.Map Name DeBrujin)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
 -- names, grammar, global environment, current proof and local names for each goal (if applicable)
-type State = ([Name], Grammar, Env, Maybe (Proof, [ElabCtx]))
+type State = ([Name], Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
 
 fillHole :: Proof -> Proof -> Maybe Proof
 fillHole Hole p = pure p
@@ -28,16 +28,25 @@ fillHole (IntrosObj n t a) p = IntrosObj n t <$> fillHole a p
 fillHole (UniElim a t) = flip UniElim t <$> fillHole a p
 fillHole _ = Nothing
 
+checkProof :: State -> Lua Term
+checkProof (_, _, _, Nothing) = error "NOT IN PROOF MODE"
+checkProof (_, _, env, Just (prop, prf, _)) = do
+    
+
 refine :: State -> Proof -> Lua State
+refine (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"
+refine (names, grammar, env, Just (prop, prf, ctxs)) p = case fillHole prf p of
+    Just prf' -> let state' = (names, grammar, env, Just (prop, prf', ctxs)) in pure state' =<< checkProof state'
+    Nothing -> error "NO HOLES TO REFINE"
 
-beginProof :: State -> Text -> Prop -> Lua State
+beginProof :: State -> Prop -> Lua State
 
-endProof :: State -> Lua State
+endProof :: State -> Text -> Lua State
 
 parseProof :: State -> Text -> Lua (Proof, [Name], [ElabCtx])
 parseProof (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"
 parseProof (_, _, _, Just (_, [])) _ = error "NO OPEN GOALS"
-parseProof (names, grammar, env, Just (prf, (ctx:ctxs))) t = case parse grammar nt_PROOF t of
+parseProof (names, grammar, env, Just (pprop, prf, (ctx:ctxs))) t = case parse grammar nt_PROOF t of
     Left err -> error (show err)
     Right s -> case runElaborator names ctx (elabProof s) of
         ((Right o, names'), ctx') -> pure (o, names', ctx')
@@ -57,9 +66,9 @@ newSortExt :: IORef State -> Text -> Lua ()
 
 notationExt :: IORef State -> Text -> Text -> Lua ()
 
-beginProofExt :: IORef State -> Text -> Text -> Lua ()
+beginProofExt :: IORef State -> Text -> Lua ()
 
-endProofExt :: IORef State -> Lua ()
+endProofExt :: IORef State -> Text -> Lua ()
 
 {- references to IORef through CLOSURES! -}
 

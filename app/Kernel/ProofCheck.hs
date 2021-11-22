@@ -131,3 +131,6 @@ inferThm ctx (UniElim p0 e0) = do
 {- maybe replace this with something that attempts to? -}
 inferThm ctx (IntrosObj n t p) = throwError (CantInferHigherOrder n p)
 inferThm ctx Hole = (,[],(M.empty,M.empty)) . MetaVar <$> fresh
+
+typeCheckProof :: Ctx -> Proof -> Infer (Term, TypeSubst, Proof)
+typeCheckProof (_,_,t) prf = -- need to typecheck each of the prop literals inside the proof

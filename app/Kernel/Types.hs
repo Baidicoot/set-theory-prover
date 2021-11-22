@@ -50,6 +50,9 @@ discoverMetaVar x = do
     modify (second (M.insert x t))
     pure t
 
+runInfer :: ([Name], MetaVarTypes) -> Infer a -> (Either ProofError a, ([Name], MetaVarTypes))
+runInfer s f = flip runStateT s . runExceptT f
+
 data DeBrujin
     = DLam DeBrujin
     | DApp DeBrujin DeBrujin
