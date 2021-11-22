@@ -63,6 +63,7 @@ instThm t = do
     m <- mapM (\n -> (n,) . MetaVar <$> fresh) (S.toList (free @Term t))
     pure (subst (M.fromList m) t)
 
+-- add things for checking props inside this
 checkThm :: Ctx -> Term -> Proof -> Infer ([Term], FullSubst)
 checkThm ctx e0 (IntrosThm n t p) = do
     e1 <- MetaVar <$> fresh
@@ -131,6 +132,3 @@ inferThm ctx (UniElim p0 e0) = do
 {- maybe replace this with something that attempts to? -}
 inferThm ctx (IntrosObj n t p) = throwError (CantInferHigherOrder n p)
 inferThm ctx Hole = (,[],(M.empty,M.empty)) . MetaVar <$> fresh
-
-typeCheckProof :: Ctx -> Proof -> Infer (Term, TypeSubst, Proof)
-typeCheckProof (_,_,t) prf = -- need to typecheck each of the prop literals inside the proof
