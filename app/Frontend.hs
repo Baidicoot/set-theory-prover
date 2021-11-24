@@ -12,11 +12,18 @@ import qualified Foreign.Lua as Lua
 newtype ConstObjs = ConstObjs (M.Map Name Monotype)
 newtype DefinedObjs = DefObjs (M.Map Name (Monotype,DeBrujin))
 newtype ConstSorts = Sorts (S.Set Name)
-newtype Axioms = Axioms (M.Map Name DeBrujin)
+newtype Axioms = Axioms (M.Map Name Term)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
 -- names, grammar, global environment, current proof and local names for each goal (if applicable)
 type State = ([Name], Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
+
+envToCtx :: Env -> Ctx
+envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
+    let objctx = fmap (Forall M.empty) (objs `M.union` fmap fst defobjs)
+        defctx = fmap snd defobjs
+        thmctx = ax
+    in (objctx,thmctx,defctx)
 
 fillHole :: Proof -> Proof -> Maybe Proof
 fillHole Hole p = pure p
@@ -28,10 +35,13 @@ fillHole (IntrosObj n t a) p = IntrosObj n t <$> fillHole a p
 fillHole (UniElim a t) = flip UniElim t <$> fillHole a p
 fillHole _ = Nothing
 
-checkProof :: State -> Lua Term
+checkProof :: State -> Lua [Term]
 checkProof (_, _, _, Nothing) = error "NOT IN PROOF MODE"
-checkProof (_, _, env, Just (prop, prf, _)) = do
-    
+checkProof (ns, _, env, Just (prop, prf, _)) =
+    let (res, ns') = runProofCheck (envToCtx env) prop prf
+    in case res of
+        Right (_, hs) -> pure hs
+        Left err -> error (show err)
 
 refine :: State -> Proof -> Lua State
 refine (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"

@@ -16,6 +16,8 @@ type ObjCtx = M.Map Name Polytype
 type ThmCtx = M.Map Name Term
 type DefCtx = M.Map Name DeBrujin
 
+type Ctx = (ThmCtx,ObjCtx,DefCtx)
+
 names :: [Name]
 names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
 

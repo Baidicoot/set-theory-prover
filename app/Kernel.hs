@@ -6,4 +6,6 @@ import Kernel.ProofCheck
 import Kernel.TypeCheck
 
 runProofCheck :: [Name] -> Ctx -> Term -> Proof -> (Either ProofError (Term, [Term]), [Name])
-runProofCheck ns ctx t p = do
+runProofCheck ns ctx t p = (\(r, (ns,_)) -> case r of
+    Left err -> (Left err, ns)
+    Right (ts,hs,_) -> (Right (ts,hs), ns)) $ runInfer (ns,M.empty) (checkThm ctx t p)
