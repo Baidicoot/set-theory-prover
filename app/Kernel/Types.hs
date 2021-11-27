@@ -36,6 +36,7 @@ data ProofError
     | UnknownConst Name
     | UnscopedDeBrujin Int
     | CantInferHigherOrder Name Proof
+    deriving(Show)
 
 type Infer = ExceptT ProofError (State ([Name], MetaVarTypes))
 
@@ -64,7 +65,7 @@ data DeBrujin
     | DConst Name
     | DHole Name
     | DFree Name
-    deriving(Eq)
+    deriving(Eq,Show)
 
 data Term
     = Lam Name Term
@@ -75,18 +76,18 @@ data Term
     | Forall Name Monotype Term
     | Const Name
     | MetaVar Name
-    deriving(Eq)
+    deriving(Eq,Show)
 
 data Monotype
     = Arr Monotype Monotype
     | TyVar Name
     | ConstTy Name
     | Prop
-    deriving(Eq)
+    deriving(Eq,Show)
 
 data Polytype
     = Polytype (S.Set Name) Monotype
-    deriving(Eq)
+    deriving(Eq,Show)
 
 data Proof
     = ModPon Proof Proof
@@ -96,3 +97,4 @@ data Proof
     | Axiom Name
     | Param Name
     | Hole
+    deriving(Show)

@@ -90,6 +90,8 @@ emptyRule = (const (Just (Partial f [])), [])
 
 type Grammar = M.Map Name [ProdRule]
 
+type ElabCtx = M.Map Name (Name, NameOrigin, NameLevel)
+
 nt_PROOF, nt_SORT, nt_PROP :: Name
 nt_PROOF = "PROOF"
 nt_SORT = "SORT"

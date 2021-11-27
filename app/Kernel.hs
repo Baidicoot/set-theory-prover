@@ -1,4 +1,4 @@
-module Kernel (module Kernel.ProofCheck, module Kernel.TypeCheck, module Kernel.Types) where
+module Kernel (module Kernel.ProofCheck, module Kernel.TypeCheck, module Kernel.Types, runProofCheck) where
 {- namespacing, re-exports, etc -}
 
 import Kernel.Types

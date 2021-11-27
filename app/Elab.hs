@@ -14,8 +14,6 @@ import qualified Data.Map as M
 
 {- elaboration of parse trees into Kernel.Types structures -}
 
-type ElabCtx = M.Map Name (Name, NameOrigin, NameLevel)
-
 lookupIdent :: Name -> NameLevel -> Elaborator (Name, NameOrigin)
 lookupIdent n l = do
     x <- asks (M.lookup n)
