@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 module Elab where
 
-import Kernel hiding (fresh)
+import Kernel hiding (fresh,Name)
 import ParserTypes
 
 import Control.Monad.State
@@ -101,14 +101,16 @@ elabTerm x = do
       Implicit -> pure (MetaVar n)
 
 elabProof :: SExpr -> Elaborator Proof
-elabProof (SExpr "introsThm" [x,y]) = do
+elabProof (SExpr "introsThm" [x,y,z]) = do
     n <- elabIdent x
-    (n', y') <- freshen n Local Prf (elabProof y)
-    pure (IntrosThm n' y')
-elabProof (SExpr "introsObj" [x,y]) = do
+    y' <- elabTerm y
+    (n', z') <- freshen n Local Prf (elabProof z)
+    pure (IntrosThm n' y' z')
+elabProof (SExpr "introsObj" [x,y,z]) = do
     n <- elabIdent x
-    (n', y') <- freshen n Local Obj (elabProof y)
-    pure (IntrosObj n' y')
+    y' <- elabSort y
+    (n', z') <- freshen n Local Prf (elabProof z)
+    pure (IntrosObj n' y' z')
 elabProof (SExpr "modPon" [x,y]) = do
     x' <- elabProof x
     y' <- elabProof y
@@ -128,5 +130,5 @@ elabProof x = do
         Implicit -> error "UNREACHABLE"
         Global -> pure (Axiom n)
 
-runElaborator :: [Name] -> ElabCtx -> Elaborator a -> ((Either ParseError a, [Name]), [ElabCtx])
+runElaborator :: [Name] -> ElabCtx -> Elaborator a -> ((Either ParseError a, [ElabCtx]), [Name])
 runElaborator n c = flip runState n . flip runReaderT c . runWriterT . runExceptT

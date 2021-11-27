@@ -62,20 +62,24 @@ instThm t = do
     pure (subst (M.fromList m) t)
 
 -- add things for checking props inside this
-checkThm :: Ctx -> Term -> Proof -> Infer ([Term], FullSubst)
+checkThm :: Ctx -> Term -> Proof -> Infer (Term, [Term], FullSubst)
 checkThm ctx e0 (IntrosThm n t p) = do
-    _ <- infer (snd3 ctx) t
+    (s0,_) <- inferObj (snd3 ctx) t
     e1 <- MetaVar <$> fresh
     e2 <- MetaVar <$> fresh
-    f0 <- unifyObj (trd3 ctx) e0 (Imp e1 e2)
+    f0 <- unifyObj (trd3 ctx) (subst s0 e0) (Imp e1 e2)
     ctx <- updateCtx f0 ctx
     e1' <- substFull f0 e1
     e2' <- substFull f0 e2
-    (h,f1) <- checkThm (addThm n e1' ctx) e2' p
+    (_,h,f1) <- checkThm (addThm n e1' ctx) e2' p
     ctx <- updateCtx f1 ctx
     e1'' <- substFull f1 e1'
+    e2'' <- substFull f1 e2'
     f2 <- unifyObj (trd3 ctx) e1'' t
-    pure (h,composeFull f2 (composeFull f1 f0))
+    e1''' <- substFull f2 e1''
+    e2''' <- substFull f2 e2''
+    h' <- mapM (substFull f2) h
+    pure (Imp e1''' e2''',h',composeFull f2 (composeFull f1 f0))
 checkThm ctx e0 (IntrosObj n t p) = do
     t0 <- TyVar <$> fresh
     e1 <- MetaVar <$> fresh
@@ -84,17 +88,21 @@ checkThm ctx e0 (IntrosObj n t p) = do
     ctx <- updateCtx f0 ctx
     e1' <- substFull f0 e1
     let t0' = subst (snd f0) t0
-    (h,f1) <- checkThm (addObj n (Polytype S.empty t0') ctx) e1' p
+    (_,h,f1) <- checkThm (addObj n (Polytype S.empty t0') ctx) e1' p
+    e1'' <- substFull f1 e1'
     ctx <- updateCtx f1 ctx
     let t0'' = subst (snd f1) t0'
     f2 <- (mempty,) <$> unifyTyp t0'' t
+    let t0''' = subst (snd f2) t0''
     h' <- mapM (substFull f2) h
-    pure (h',composeFull f2 (composeFull f1 f0))
+    e1''' <- substFull f2 e1''
+    pure (Forall x' t0''' e1'',h',composeFull f2 (composeFull f1 f0))
 checkThm ctx e0 p = do
     (e1,h,f0) <- inferThm ctx p
     e0' <- substFull f0 e0
     f1 <- unifyObj (trd3 ctx) e0' e1
-    (,composeFull f1 f0) <$> mapM (substFull f1) h
+    e1' <- substFull f1 e1
+    (e1',,composeFull f1 f0) <$> mapM (substFull f1) h
 
 inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
 inferThm ctx (Axiom n) = case M.lookup n (fst3 ctx) of
