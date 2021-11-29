@@ -1,4 +1,4 @@
-module Frontend where
+module Frontend (initialState, refineExt, assertExt, newSortExt, beginProofExt, endProofExt) where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -22,6 +22,12 @@ type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
 -- names, grammar, global environment, current proof and local names for each goal (if applicable)
 type State = ([Name], Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
+
+initialNames :: [Name]
+initialNames = fmap (("v"++) . show) [1..]
+
+initialState :: State
+initialState = (initialNames, mempty, (Sorts mempty, CostObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
 
 insertAxiom :: Name -> Term -> State -> State
 insertAxiom n m (names, grammar, (s,o,d,Axioms a), goal) =
