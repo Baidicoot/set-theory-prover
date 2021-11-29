@@ -5,7 +5,7 @@ import qualified Data.Set as S
 import Data.IORef
 import Foreign.Ptr
 
-import Data.Text
+import qualified Data.Text as T
 
 import Kernel hiding(Name)
 import ParserTypes
@@ -14,20 +14,20 @@ import Elab
 
 import qualified Foreign.Lua as L
 
-newtype ConstObjs = ConstObjs (M.Map Name Monotype)
-newtype DefObjs = DefObjs (M.Map Name (Monotype,DeBrujin))
-newtype ConstSorts = Sorts (S.Set Name)
-newtype Axioms = Axioms (M.Map Name Term)
+newtype ConstObjs = ConstObjs (M.Map Name Monotype) deriving(Show)
+newtype DefObjs = DefObjs (M.Map Name (Monotype,DeBrujin)) deriving(Show)
+newtype ConstSorts = Sorts (S.Set Name) deriving(Show)
+newtype Axioms = Axioms (M.Map Name Term) deriving(Show)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
 -- names, grammar, global environment, current proof and local names for each goal (if applicable)
 type State = ([Name], Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
 
 initialNames :: [Name]
-initialNames = fmap (("v"++) . show) [1..]
+initialNames = fmap (T.pack . ("v"++) . show) [1..]
 
 initialState :: State
-initialState = (initialNames, mempty, (Sorts mempty, CostObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
+initialState = (initialNames, mempty, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
 
 insertAxiom :: Name -> Term -> State -> State
 insertAxiom n m (names, grammar, (s,o,d,Axioms a), goal) =
@@ -72,13 +72,13 @@ beginProof :: State -> Term -> L.Lua State
 beginProof (names, grammar, env, Nothing) t = pure (names, grammar, env, Just (t, Hole, [mempty]))
 beginProof _ _ = error "ALREADY IN PROOF MODE"
 
-endProof :: State -> Text -> L.Lua State
+endProof :: State -> T.Text -> L.Lua State
 endProof (_, _, _, Nothing) t = error "NOT IN PROOF MODE"
 endProof (_, _, _, Just (_, _, _:_)) _ = error "PROOF NOT FINISHED"
 endProof s@(_, _, _, Just (prop, _, [])) t =
     pure (insertAxiom t prop s)
 
-parseProof :: State -> Text -> L.Lua (Proof, [ElabCtx], State)
+parseProof :: State -> T.Text -> L.Lua (Proof, [ElabCtx], State)
 parseProof (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"
 parseProof (_, _, _, Just (_, _, [])) _ = error "NO OPEN GOALS"
 parseProof (names, grammar, env, Just (prop, prf, ctx:ctxs)) t = case parse grammar nt_PROOF t of
@@ -87,7 +87,7 @@ parseProof (names, grammar, env, Just (prop, prf, ctx:ctxs)) t = case parse gram
         ((Right o, ctx'), names') -> pure (o, ctx', (names', grammar, env, Just (prop, prf, ctx:ctxs)))
         ((Left err, _), _) -> error (show err)
 
-parseMonotype :: State -> Text -> L.Lua (Monotype, State)
+parseMonotype :: State -> T.Text -> L.Lua (Monotype, State)
 parseMonotype (names, grammar, env, p) t =
     let ctx = case p of
             Just (_, _, ctx:_) -> ctx
@@ -99,7 +99,7 @@ parseMonotype (names, grammar, env, p) t =
         ((Right o, _), names') -> pure (o, (names', grammar, env, p))
         ((Left err, _), _) -> error (show err)
 
-parseProp :: State -> Text -> L.Lua (Term, State)
+parseProp :: State -> T.Text -> L.Lua (Term, State)
 parseProp (names, grammar, env, p) t =
     let ctx = case p of
             Just (_, _, ctx:_) -> ctx
@@ -112,37 +112,37 @@ parseProp (names, grammar, env, p) t =
         ((Left err, _), _) -> error (show err)
 
 {-
-parseProd :: State -> Text -> Text -> L.Lua ProdRule
+parseProd :: State -> T.Text -> T.Text -> L.Lua ProdRule
 -}
 
-refineExt :: IORef State -> Text -> L.Lua ()
+refineExt :: IORef State -> T.Text -> L.Lua ()
 refineExt is t = do
     s <- L.liftIO (readIORef is)
     (p, ctxs', s') <- parseProof s t
     s'' <- refine s (p, ctxs')
     L.liftIO (writeIORef is s'')
 
-assertExt :: IORef State -> Text -> Text -> L.Lua ()
+assertExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
 assertExt is n t = do
     s <- L.liftIO (readIORef is)
     (m, s') <- parseProp s t
     L.liftIO (writeIORef is (insertAxiom n m s'))
 
-newSortExt :: IORef State -> Text -> L.Lua ()
+newSortExt :: IORef State -> T.Text -> L.Lua ()
 newSortExt is n = L.liftIO (modifyIORef is (insertSort n))
 
 {-
-notationExt :: IORef State -> Text -> Text -> L.Lua ()
+notationExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
 -}
 
-beginProofExt :: IORef State -> Text -> L.Lua ()
+beginProofExt :: IORef State -> T.Text -> L.Lua ()
 beginProofExt is t = do
     s <- L.liftIO (readIORef is)
     (p, s') <- parseProp s t
     s'' <- beginProof s' p
     L.liftIO (writeIORef is s'')
 
-endProofExt :: IORef State -> Text -> L.Lua ()
+endProofExt :: IORef State -> T.Text -> L.Lua ()
 endProofExt is n = do
     s <- L.liftIO (readIORef is)
     s' <- endProof s n

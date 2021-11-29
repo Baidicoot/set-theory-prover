@@ -18,3 +18,6 @@ main = do
         L.registerHaskellFunction "begin" (beginProofExt state)
         L.registerHaskellFunction "end" (endProofExt state)
         L.dofile filepath
+    (_,_,env,_) <- readIORef state
+    print env
+    pure ()
