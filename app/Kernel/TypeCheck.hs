@@ -157,8 +157,8 @@ inferObj ctx (Forall x t e) = do
     s' <- unifyTyp t' Prop
     pure (s<+s', Prop)
 
-checkObj :: TypeCtx -> Term -> Monotype -> Infer TypeSubst
+checkObj :: TypeCtx -> Term -> Monotype -> Infer (TypeSubst, Term)
 checkObj ctx e t = do
     (s0,t') <- inferObj ctx e
     s1 <- unifyTyp (subst s0 t) t'
-    pure (s1<+s0)
+    pure (s1<+s0, subst (s1<+s0) e)

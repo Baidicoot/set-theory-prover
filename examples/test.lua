@@ -1,2 +1,8 @@
+const("True", "(prop)")
+assert("unit", "True")
 sort("Set")
-assert("axiom1","(forall x Set x)")
+
+beginProof("(forall x Set True)")
+    refine("(introsObj x Set (hole))")
+    refine("unit")
+endProof("pointless")

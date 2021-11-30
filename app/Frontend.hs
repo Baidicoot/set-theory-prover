@@ -1,4 +1,4 @@
-module Frontend (initialState, refineExt, assertExt, newSortExt, beginProofExt, endProofExt) where
+module Frontend (initialState, refineExt, assertExt, newSortExt, newConstExt, beginProofExt, endProofExt) where
 
 -- TODO: Check `Prop`s when asserting.
 
@@ -48,6 +48,10 @@ insertSort :: Name -> State -> State
 insertSort n (names, grammar, (Sorts s,o,d,a), goal) =
     (names, grammar, (Sorts (S.insert n s),o,d,a), goal)
 
+insertConst :: Name -> Monotype -> State -> State
+insertConst n t (names, grammar, (s,ConstObjs o,d,a), goal) =
+    (names, grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
+
 envToCtx :: Env -> Ctx
 envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
     let objctx = fmap (Polytype mempty) (objs `M.union` fmap fst defobjs)
@@ -65,18 +69,24 @@ fillHole (IntrosObj n t a) p = IntrosObj n t <$> fillHole a p
 fillHole (UniElim a t) p = flip UniElim t <$> fillHole a p
 fillHole _ _ = Nothing
 
-checkProof :: State -> L.Lua [Term]
-checkProof (_, _, _, Nothing) = error "NOT IN PROOF MODE"
-checkProof (ns, _, env, Just (prop, prf, _)) =
-    let (res, ns') = runProofCheck ns (envToCtx env) prop prf
-    in case res of
-        Right (_, hs) -> pure hs
-        Left err -> error (show err)
+checkProof :: State -> Term -> Proof -> L.Lua ([Term], State)
+checkProof (names, grammar, env, p) prop prf =
+    case runProofCheck names (envToCtx env) prop prf of
+        (Right (_, holes), names') -> pure (holes, (names', grammar, env, p))
+        (Left err, _) -> error (show err)
+
+checkProp :: State -> Monotype -> Term -> L.Lua (Term, State)
+checkProp (names, grammar, env, p) sort prop =
+    case runPropCheck names (envToCtx env) sort prop of
+        (Right t, names') -> pure (t, (names', grammar, env, p))
+        (Left err, _) -> error (show err)
 
 refine :: State -> (Proof, [ElabCtx]) -> L.Lua State
 refine (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"
 refine (names, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
-    Just prf' -> let state' = (names, grammar, env, Just (prop, prf', ctxs')) in checkProof state' >> pure state'
+    Just prf' ->
+        let state' = (names, grammar, env, Just (prop, prf', ctxs'))
+        in snd <$> checkProof state' prop prf'
     Nothing -> error "NO HOLES TO REFINE"
 
 beginProof :: State -> Term -> L.Lua State
@@ -89,38 +99,45 @@ endProof (_, _, _, Just (_, _, _:_)) _ = error "PROOF NOT FINISHED"
 endProof s@(_, _, _, Just (prop, _, [])) t =
     pure (insertAxiom t prop s)
 
-parseProof :: State -> T.Text -> L.Lua (Proof, [ElabCtx], State)
-parseProof (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"
-parseProof (_, _, _, Just (_, _, [])) _ = error "NO OPEN GOALS"
-parseProof (names, grammar, env, Just (prop, prf, ctx:ctxs)) t = case parse grammar nt_PROOF t of
-    Left err -> error (show err)
-    Right s -> case runElaborator names (ctx `M.union` envToElabCtx env) (elabProof s) of
-        ((Right o, ctx'), names') -> pure (o, ctx', (names', grammar, env, Just (prop, prf, ctx:ctxs)))
-        ((Left err, _), _) -> error (show err)
+goalCtx :: State -> L.Lua ElabCtx
+goalCtx (_, _, env, Just (_, _, ctx:_)) = pure (ctx `M.union` envToElabCtx env)
+goalCtx (_, _, _, Just _) = error "NO OPEN GOALS"
+goalCtx _ = error "NOT IN PROOF MODE"
 
-parseMonotype :: State -> T.Text -> L.Lua (Monotype, State)
-parseMonotype (names, grammar, env, p) t =
-    let ctx = case p of
-            Just (_, _, ctx:_) -> ctx
-            Just (_, _, []) -> error "NO OPEN GOALS"
-            _ -> mempty
-    in case parse grammar nt_SORT t of
-    Left err -> error (show err)
-    Right s -> case runElaborator names (ctx `M.union` envToElabCtx env) (elabMonotype s) of
-        ((Right o, _), names') -> pure (o, (names', grammar, env, p))
-        ((Left err, _), _) -> error (show err)
+envCtx :: State -> ElabCtx
+envCtx (_, _, env, _) = envToElabCtx env
 
-parseProp :: State -> T.Text -> L.Lua (Term, State)
-parseProp (names, grammar, env, p) t =
-    let ctx = case p of
-            Just (_, _, ctx:_) -> ctx
-            Just (_, _, []) -> error "NO OPEN GOALS"
-            _ -> mempty
-    in case parse grammar nt_PROP t of
-    Left err -> error (show err)
-    Right s -> case runElaborator names (ctx `M.union` envToElabCtx env) (elabProp s) of
-        ((Right o, _), names') -> pure (o, (names', grammar, env, p))
-        ((Left err, _), _) -> error (show err)
+parseProof :: State -> ElabCtx -> T.Text -> L.Lua (Proof, [ElabCtx], State)
+parseProof (names, grammar, env, p) ctx t =
+    case parse grammar nt_PROOF t of
+        Left err -> error (show err)
+        Right s -> case runElaborator names ctx (elabProof s) of
+            ((Right o, ctx'), names') -> pure (o, ctx', (names', grammar, env, p))
+            ((Left err, _), _) -> error (show err)
+
+parseMonotype :: State -> ElabCtx -> T.Text -> L.Lua (Monotype, State)
+parseMonotype (names, grammar, env, p) ctx t =
+    case parse grammar nt_SORT t of
+        Left err -> error (show err)
+        Right s -> case runElaborator names ctx (elabMonotype s) of
+            ((Right o, _), names') -> pure (o, (names', grammar, env, p))
+            ((Left err, _), _) -> error (show err)
+
+parseProp :: State -> ElabCtx -> T.Text -> L.Lua (Term, State)
+parseProp (names, grammar, env, p) ctx t =
+    case parse grammar nt_PROP t of
+        Left err -> error (show err)
+        Right s -> case runElaborator names ctx (elabProp s) of
+            ((Right o, _), names') -> pure (o, (names', grammar, env, p))
+            ((Left err, _), _) -> error (show err)
+
+parseSort :: State -> ElabCtx -> T.Text -> L.Lua (Monotype, State)
+parseSort (names, grammar, env, p) ctx t =
+    case parse grammar nt_SORT t of
+        Left err -> error (show err)
+        Right s -> case runElaborator names ctx (elabSort s) of
+            ((Right o, _), names') -> pure (o, (names', grammar, env, p))
+            ((Left err, _), _) -> error (show err)
 
 {-
 parseProd :: State -> T.Text -> T.Text -> L.Lua ProdRule
@@ -129,16 +146,22 @@ parseProd :: State -> T.Text -> T.Text -> L.Lua ProdRule
 refineExt :: IORef State -> T.Text -> L.Lua ()
 refineExt is t = do
     s <- L.liftIO (readIORef is)
-    (p, ctxs', s') <- parseProof s t
+    (p, ctxs', s') <- goalCtx s >>= \x -> parseProof s x t
     s'' <- refine s (p, ctxs')
     L.liftIO (writeIORef is s'')
+
+newConstExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
+newConstExt is n t = do
+    s <- L.liftIO (readIORef is)
+    (m, s') <- parseSort s (envCtx s) t
+    L.liftIO (writeIORef is (insertConst n m s'))
 
 assertExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
 assertExt is n t = do
     s <- L.liftIO (readIORef is)
-    (m, s') <- parseProp s t
-    L.liftIO (print m)
-    L.liftIO (writeIORef is (insertAxiom n m s'))
+    (m, s') <- parseProp s (envCtx s) t
+    (m', s'') <- checkProp s' Prop m
+    L.liftIO (writeIORef is (insertAxiom n m' s''))
 
 newSortExt :: IORef State -> T.Text -> L.Lua ()
 newSortExt is n = L.liftIO (modifyIORef is (insertSort n))
@@ -150,7 +173,7 @@ notationExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
 beginProofExt :: IORef State -> T.Text -> L.Lua ()
 beginProofExt is t = do
     s <- L.liftIO (readIORef is)
-    (p, s') <- parseProp s t
+    (p, s') <- parseProp s (envCtx s) t
     s'' <- beginProof s' p
     L.liftIO (writeIORef is s'')
 
