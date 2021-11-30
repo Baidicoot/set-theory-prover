@@ -2,12 +2,14 @@ module Main where
 import Frontend
 import qualified Foreign.Lua as L
 import Data.IORef
+import System.IO
 
 main :: IO ()
 main = do
     putStrLn "Welcome to SPARSE RECAPITALIZATION™."
     putStrLn "© Aidan Ewart, 2021"
     putStr "> runfile "
+    hFlush stdout
     filepath <- getLine
     state <- newIORef initialState
     L.run $ do

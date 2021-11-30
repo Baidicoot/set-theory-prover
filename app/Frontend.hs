@@ -1,5 +1,7 @@
 module Frontend (initialState, refineExt, assertExt, newSortExt, beginProofExt, endProofExt) where
 
+-- TODO: Check `Prop`s when asserting.
+
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.IORef
@@ -9,6 +11,7 @@ import qualified Data.Text as T
 
 import Kernel hiding(Name)
 import ParserTypes
+import ParserInit
 import Parser
 import Elab
 
@@ -23,11 +26,19 @@ type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 -- names, grammar, global environment, current proof and local names for each goal (if applicable)
 type State = ([Name], Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
 
+envToElabCtx :: Env -> ElabCtx
+envToElabCtx (Sorts s, ConstObjs o, DefObjs d, Axioms a) =
+    let sorts = M.fromList (fmap (\s -> (s,(s,Global,Sort))) (S.toList s))
+        consts = M.fromList (fmap (\c -> (c,(c,Global,Obj))) (M.keys o))
+        defs = M.fromList (fmap (\d -> (d,(d,Global,Obj))) (M.keys d))
+        axioms = M.fromList (fmap (\a -> (a,(a,Global,Prf))) (M.keys a))
+    in sorts `M.union` consts `M.union` defs `M.union` axioms
+
 initialNames :: [Name]
 initialNames = fmap (T.pack . ("v"++) . show) [1..]
 
 initialState :: State
-initialState = (initialNames, mempty, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
+initialState = (initialNames, gr_INIT, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
 
 insertAxiom :: Name -> Term -> State -> State
 insertAxiom n m (names, grammar, (s,o,d,Axioms a), goal) =
@@ -83,7 +94,7 @@ parseProof (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"
 parseProof (_, _, _, Just (_, _, [])) _ = error "NO OPEN GOALS"
 parseProof (names, grammar, env, Just (prop, prf, ctx:ctxs)) t = case parse grammar nt_PROOF t of
     Left err -> error (show err)
-    Right s -> case runElaborator names ctx (elabProof s) of
+    Right s -> case runElaborator names (ctx `M.union` envToElabCtx env) (elabProof s) of
         ((Right o, ctx'), names') -> pure (o, ctx', (names', grammar, env, Just (prop, prf, ctx:ctxs)))
         ((Left err, _), _) -> error (show err)
 
@@ -95,7 +106,7 @@ parseMonotype (names, grammar, env, p) t =
             _ -> mempty
     in case parse grammar nt_SORT t of
     Left err -> error (show err)
-    Right s -> case runElaborator names ctx (elabMonotype s) of
+    Right s -> case runElaborator names (ctx `M.union` envToElabCtx env) (elabMonotype s) of
         ((Right o, _), names') -> pure (o, (names', grammar, env, p))
         ((Left err, _), _) -> error (show err)
 
@@ -107,7 +118,7 @@ parseProp (names, grammar, env, p) t =
             _ -> mempty
     in case parse grammar nt_PROP t of
     Left err -> error (show err)
-    Right s -> case runElaborator names ctx (elabProp s) of
+    Right s -> case runElaborator names (ctx `M.union` envToElabCtx env) (elabProp s) of
         ((Right o, _), names') -> pure (o, (names', grammar, env, p))
         ((Left err, _), _) -> error (show err)
 
@@ -126,6 +137,7 @@ assertExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
 assertExt is n t = do
     s <- L.liftIO (readIORef is)
     (m, s') <- parseProp s t
+    L.liftIO (print m)
     L.liftIO (writeIORef is (insertAxiom n m s'))
 
 newSortExt :: IORef State -> T.Text -> L.Lua ()

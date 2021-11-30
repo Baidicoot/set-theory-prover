@@ -63,11 +63,11 @@ elabMonotype x = do
 
 elabBound :: SExpr -> NameLevel -> Elaborator (Name, NameOrigin)
 elabBound x@(STok (Tok Ident n)) = lookupIdent n
-elabBound x = const (throwError (ElabError x "identifier"))
+elabBound x = const (throwError (ElabError x "expected bound identifier"))
 
 elabIdent :: SExpr -> Elaborator Name
 elabIdent (STok (Tok Ident n)) = pure n
-elabIdent x = throwError (ElabError x "identifier")
+elabIdent x = throwError (ElabError x "expected identifier")
 
 elabProp :: SExpr -> Elaborator Term
 elabProp x = do

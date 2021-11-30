@@ -39,7 +39,8 @@ executable set-theory-prover
         Tokenize,
         Elab,
         Tests,
-        Frontend
+        Frontend,
+        ParserInit
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
