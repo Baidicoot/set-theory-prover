@@ -3,6 +3,10 @@ import Frontend
 import qualified Foreign.Lua as L
 import Data.IORef
 import System.IO
+import qualified Data.Text as T
+
+initialNames :: [Name]
+initialNames = fmap (T.pack . ("v"++) . show) [1..]
 
 main :: IO ()
 main = do
@@ -11,15 +15,15 @@ main = do
     putStr "> runfile "
     hFlush stdout
     filepath <- getLine
-    state <- newIORef initialState
+    state <- newIORef (initialState,initialNames)
     L.run $ do
         --openlibs
-        L.registerHaskellFunction "refine" (refineExt state)
-        L.registerHaskellFunction "assert" (assertExt state)
-        L.registerHaskellFunction "sort" (newSortExt state)
-        L.registerHaskellFunction "beginProof" (beginProofExt state)
-        L.registerHaskellFunction "endProof" (endProofExt state)
-        L.registerHaskellFunction "const" (newConstExt state)
+        L.registerHaskellFunction "refine" (runExt refineExt state)
+        L.registerHaskellFunction "assert" (uncurry . runExt assertExt state)
+        L.registerHaskellFunction "sort" (runExt newSortExt state)
+        L.registerHaskellFunction "beginProof" (runExt beginProofExt state)
+        L.registerHaskellFunction "endProof" (runExt endProofExt state)
+        L.registerHaskellFunction "const" (uncurry . runExt newConstExt state)
         L.dofile filepath
     (_,_,env,_) <- readIORef state
     print env

@@ -1,3 +1,4 @@
+{-# LANGUAGE FunctionalDependencies #-}
 module Frontend (initialState, refineExt, assertExt, newSortExt, newConstExt, beginProofExt, endProofExt) where
 
 -- TODO: Check `Prop`s when asserting.
@@ -15,6 +16,9 @@ import ParserInit
 import Parser
 import Elab
 
+import Control.Monad.State
+import Control.Monad.IO.Class
+
 import qualified Foreign.Lua as L
 
 newtype ConstObjs = ConstObjs (M.Map Name Monotype) deriving(Show)
@@ -24,7 +28,20 @@ newtype Axioms = Axioms (M.Map Name Term) deriving(Show)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
 -- names, grammar, global environment, current proof and local names for each goal (if applicable)
-type State = ([Name], Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
+type ProverState = (Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
+
+type Prover = StateT [Name] L.Lua
+
+runExt :: (ProverState -> i -> Prover ProverState) -> IORef (ProverState,[Names]) -> i -> L.Lua ()
+runExt f state i = do
+    (s,ns) <- liftIO (readIORef state)
+    let (x,ns') = runProver (f s i) ns
+    s' <- x
+    liftIO (writeIORef state (s',ns'))
+    pure s'
+
+runProver :: Prover i -> [Names] -> (L.Lua i, [Names])
+runProver = runStateT
 
 envToElabCtx :: Env -> ElabCtx
 envToElabCtx (Sorts s, ConstObjs o, DefObjs d, Axioms a) =
@@ -34,23 +51,20 @@ envToElabCtx (Sorts s, ConstObjs o, DefObjs d, Axioms a) =
         axioms = M.fromList (fmap (\a -> (a,(a,Global,Prf))) (M.keys a))
     in sorts `M.union` consts `M.union` defs `M.union` axioms
 
-initialNames :: [Name]
-initialNames = fmap (T.pack . ("v"++) . show) [1..]
+initialState :: ProverState
+initialState = (gr_INIT, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
 
-initialState :: State
-initialState = (initialNames, gr_INIT, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
+insertAxiom :: Name -> Term -> ProverState -> ProverState
+insertAxiom n m (grammar, (s,o,d,Axioms a), goal) =
+    (grammar, (s,o,d,Axioms (M.insert n m a)), goal)
 
-insertAxiom :: Name -> Term -> State -> State
-insertAxiom n m (names, grammar, (s,o,d,Axioms a), goal) =
-    (names, grammar, (s,o,d,Axioms (M.insert n m a)), goal)
+insertSort :: Name -> ProverState -> ProverState
+insertSort n (grammar, (Sorts s,o,d,a), goal) =
+    (grammar, (Sorts (S.insert n s),o,d,a), goal)
 
-insertSort :: Name -> State -> State
-insertSort n (names, grammar, (Sorts s,o,d,a), goal) =
-    (names, grammar, (Sorts (S.insert n s),o,d,a), goal)
-
-insertConst :: Name -> Monotype -> State -> State
-insertConst n t (names, grammar, (s,ConstObjs o,d,a), goal) =
-    (names, grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
+insertConst :: Name -> Monotype -> ProverState -> ProverState
+insertConst n t (grammar, (s,ConstObjs o,d,a), goal) =
+    (grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
 
 envToCtx :: Env -> Ctx
 envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
@@ -69,119 +83,120 @@ fillHole (IntrosObj n t a) p = IntrosObj n t <$> fillHole a p
 fillHole (UniElim a t) p = flip UniElim t <$> fillHole a p
 fillHole _ _ = Nothing
 
-checkProof :: State -> Term -> Proof -> L.Lua ([Term], State)
-checkProof (names, grammar, env, p) prop prf =
+checkProof :: Term -> Proof -> Prover [Term]
+checkProof prop prf = do
+    names <- get
     case runProofCheck names (envToCtx env) prop prf of
-        (Right (_, holes), names') -> pure (holes, (names', grammar, env, p))
+        (Right (_, holes), names') -> put names' >> pure holes
         (Left err, _) -> error (show err)
 
-checkProp :: State -> Monotype -> Term -> L.Lua (Term, State)
-checkProp (names, grammar, env, p) sort prop =
+checkProp :: Monotype -> Term -> Prover Term
+checkProp sort prop = do
+    names <- get
     case runPropCheck names (envToCtx env) sort prop of
-        (Right t, names') -> pure (t, (names', grammar, env, p))
+        (Right t, names') -> put names' >> pure t
         (Left err, _) -> error (show err)
 
-refine :: State -> (Proof, [ElabCtx]) -> L.Lua State
-refine (_, _, _, Nothing) _ = error "NOT IN PROOF MODE"
-refine (names, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
+refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
+refine (_, _, Nothing) _ = error "NOT IN PROOF MODE"
+refine (grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
     Just prf' ->
-        let state' = (names, grammar, env, Just (prop, prf', ctxs'))
+        let state' = (grammar, env, Just (prop, prf', ctxs'))
         in snd <$> checkProof state' prop prf'
     Nothing -> error "NO HOLES TO REFINE"
 
-beginProof :: State -> Term -> L.Lua State
-beginProof (names, grammar, env, Nothing) t = pure (names, grammar, env, Just (t, Hole, [mempty]))
+beginProof :: ProverState -> Term -> Prover ProverState
+beginProof (grammar, env, Nothing) t = pure (grammar, env, Just (t, Hole, [mempty]))
 beginProof _ _ = error "ALREADY IN PROOF MODE"
 
-endProof :: State -> T.Text -> L.Lua State
-endProof (_, _, _, Nothing) t = error "NOT IN PROOF MODE"
-endProof (_, _, _, Just (_, _, _:_)) _ = error "PROOF NOT FINISHED"
-endProof s@(_, _, _, Just (prop, _, [])) t =
+endProof :: ProverState -> T.Text -> Prover ProverState
+endProof (_, _, Nothing) t = error "NOT IN PROOF MODE"
+endProof (_, _, Just (_, _, _:_)) _ = error "PROOF NOT FINISHED"
+endProof s@(_, _, Just (prop, _, [])) t =
     pure (insertAxiom t prop s)
 
-goalCtx :: State -> L.Lua ElabCtx
-goalCtx (_, _, env, Just (_, _, ctx:_)) = pure (ctx `M.union` envToElabCtx env)
-goalCtx (_, _, _, Just _) = error "NO OPEN GOALS"
+goalCtx :: ProverState -> Prover ElabCtx
+goalCtx (_, env, Just (_, _, ctx:_)) = pure (ctx `M.union` envToElabCtx env)
+goalCtx (_, _, Just _) = error "NO OPEN GOALS"
 goalCtx _ = error "NOT IN PROOF MODE"
 
-envCtx :: State -> ElabCtx
-envCtx (_, _, env, _) = envToElabCtx env
+envCtx :: ProverState -> ElabCtx
+envCtx (_, env, _) = envToElabCtx env
 
-parseProof :: State -> ElabCtx -> T.Text -> L.Lua (Proof, [ElabCtx], State)
+parseProof :: ProverState -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
 parseProof (names, grammar, env, p) ctx t =
     case parse grammar nt_PROOF t of
         Left err -> error (show err)
-        Right s -> case runElaborator names ctx (elabProof s) of
-            ((Right o, ctx'), names') -> pure (o, ctx', (names', grammar, env, p))
-            ((Left err, _), _) -> error (show err)
+        Right s -> do
+            names <- get
+            case runElaborator names ctx (elabProof s) of
+                ((Right o, ctx'), names') -> put names' >> pure (o, ctx', (grammar, env, p))
+                ((Left err, _), _) -> error (show err)
 
-parseMonotype :: State -> ElabCtx -> T.Text -> L.Lua (Monotype, State)
-parseMonotype (names, grammar, env, p) ctx t =
+parseMonotype :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
+parseMonotype (grammar, env, p) ctx t =
     case parse grammar nt_SORT t of
         Left err -> error (show err)
-        Right s -> case runElaborator names ctx (elabMonotype s) of
-            ((Right o, _), names') -> pure (o, (names', grammar, env, p))
-            ((Left err, _), _) -> error (show err)
+        Right s -> do
+            names <- get
+            case runElaborator names ctx (elabMonotype s) of
+                ((Right o, _), names') -> put names' >> pure (o, (grammar, env, p))
+                ((Left err, _), _) -> error (show err)
 
-parseProp :: State -> ElabCtx -> T.Text -> L.Lua (Term, State)
-parseProp (names, grammar, env, p) ctx t =
+parseProp :: ProverState -> ElabCtx -> T.Text -> Prover (Term, ProverState)
+parseProp (grammar, env, p) ctx t =
     case parse grammar nt_PROP t of
         Left err -> error (show err)
-        Right s -> case runElaborator names ctx (elabProp s) of
-            ((Right o, _), names') -> pure (o, (names', grammar, env, p))
-            ((Left err, _), _) -> error (show err)
+        Right s -> do
+            names <- get
+            case runElaborator names ctx (elabProp s) of
+                ((Right o, _), names') -> put names' >> pure (o, (grammar, env, p))
+                ((Left err, _), _) -> error (show err)
 
-parseSort :: State -> ElabCtx -> T.Text -> L.Lua (Monotype, State)
+parseSort :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseSort (names, grammar, env, p) ctx t =
     case parse grammar nt_SORT t of
         Left err -> error (show err)
-        Right s -> case runElaborator names ctx (elabSort s) of
-            ((Right o, _), names') -> pure (o, (names', grammar, env, p))
-            ((Left err, _), _) -> error (show err)
+        Right s -> do
+            names <- get
+            case runElaborator names ctx (elabSort s) of
+                ((Right o, _), names') -> put names' >> pure (o, (grammar, env, p))
+                ((Left err, _), _) -> error (show err)
 
 {-
-parseProd :: State -> T.Text -> T.Text -> L.Lua ProdRule
+parseProd :: ProverState -> T.Text -> T.Text -> Prover ProdRule
 -}
 
-refineExt :: IORef State -> T.Text -> L.Lua ()
-refineExt is t = do
-    s <- L.liftIO (readIORef is)
+refineExt :: ProverState -> T.Text -> Prover ProverState
+refineExt s t = do
     (p, ctxs', s') <- goalCtx s >>= \x -> parseProof s x t
-    s'' <- refine s (p, ctxs')
-    L.liftIO (writeIORef is s'')
+    refine s (p, ctxs')
 
-newConstExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
-newConstExt is n t = do
-    s <- L.liftIO (readIORef is)
+newConstExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
+newConstExt s (n, t) = do
     (m, s') <- parseSort s (envCtx s) t
-    L.liftIO (writeIORef is (insertConst n m s'))
+    pure (insertConst n m s')
 
-assertExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
-assertExt is n t = do
-    s <- L.liftIO (readIORef is)
+assertExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
+assertExt s (n, t) = do
     (m, s') <- parseProp s (envCtx s) t
     (m', s'') <- checkProp s' Prop m
-    L.liftIO (writeIORef is (insertAxiom n m' s''))
+    pure (insertAxiom n m' s'')
 
-newSortExt :: IORef State -> T.Text -> L.Lua ()
-newSortExt is n = L.liftIO (modifyIORef is (insertSort n))
+newSortExt :: ProverState -> T.Text -> Prover ProverState
+newSortExt s n = pure (insertSort n s)
 
 {-
-notationExt :: IORef State -> T.Text -> T.Text -> L.Lua ()
+notationExt :: IORef ProverState -> T.Text -> T.Text -> Prover ()
 -}
 
-beginProofExt :: IORef State -> T.Text -> L.Lua ()
-beginProofExt is t = do
-    s <- L.liftIO (readIORef is)
+beginProofExt :: ProverState -> T.Text -> Prover ProverState
+beginProofExt s t = do
     (p, s') <- parseProp s (envCtx s) t
-    s'' <- beginProof s' p
-    L.liftIO (writeIORef is s'')
+    beginProof s' p
 
-endProofExt :: IORef State -> T.Text -> L.Lua ()
-endProofExt is n = do
-    s <- L.liftIO (readIORef is)
-    s' <- endProof s n
-    L.liftIO (writeIORef is s')
+endProofExt :: ProverState -> T.Text -> Prover ProverState
+endProofExt s n = endProof s n
 
 {- references to IORef through CLOSURES! -}
 
