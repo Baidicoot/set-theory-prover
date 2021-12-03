@@ -4,6 +4,7 @@ import qualified Foreign.Lua as L
 import Data.IORef
 import System.IO
 import qualified Data.Text as T
+import ParserTypes
 
 initialNames :: [Name]
 initialNames = fmap (T.pack . ("v"++) . show) [1..]
@@ -19,12 +20,12 @@ main = do
     L.run $ do
         --openlibs
         L.registerHaskellFunction "refine" (runExt refineExt state)
-        L.registerHaskellFunction "assert" (uncurry . runExt assertExt state)
+        L.registerHaskellFunction "assert" (curry $ runExt assertExt state)
         L.registerHaskellFunction "sort" (runExt newSortExt state)
         L.registerHaskellFunction "beginProof" (runExt beginProofExt state)
         L.registerHaskellFunction "endProof" (runExt endProofExt state)
-        L.registerHaskellFunction "const" (uncurry . runExt newConstExt state)
+        L.registerHaskellFunction "const" (curry $ runExt newConstExt state)
         L.dofile filepath
-    (_,_,env,_) <- readIORef state
+    ((_,env,_),_) <- readIORef state
     print env
     pure ()
