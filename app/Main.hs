@@ -38,6 +38,7 @@ main = do
         L.registerHaskellFunction "beginProof" (runExt "beginProof" beginProofExt state)
         L.registerHaskellFunction "endProof" (runExt "endProof" endProofExt state)
         L.registerHaskellFunction "const" (curry $ runExt "const" newConstExt state)
+        L.registerHaskellFunction "die" (\x -> L.liftIO (putStrLn x) >> L.raiseError x)
         catchScriptError $ L.dofile filepath
     ((_,env,_),_) <- readIORef state
     putStrLn "exited with environment:"

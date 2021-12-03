@@ -54,13 +54,13 @@ throwExt = throwError . flip TracedError []
 traceAs :: String -> String -> Prover a -> Prover a
 traceAs x i f = catchError f (\(TracedError e xs) -> throwError (TracedError e ((x,i):xs)))
 
-runExt :: Show i => String -> (ProverState -> i -> Prover ProverState) -> IORef (ProverState,[Name]) -> i -> L.Lua ()
+runExt :: Show i => String -> (ProverState -> i -> Prover ProverState) -> IORef (ProverState,[Name]) -> i -> L.Lua L.NumResults
 runExt n f state i = do
     (s,ns) <- liftIO (readIORef state)
     (s',ns') <- runProver (traceAs n (show i) $ f s i) ns
     case s' of
-        Right s' -> liftIO (writeIORef state (s',ns'))
-        Left err -> L.raiseError (show err) >> pure ()
+        Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
+        Left err -> L.raiseError (show err)
 
 runProver :: Prover i -> [Name] -> L.Lua (Either TracedError i, [Name])
 runProver f = runStateT (runExceptT f)
