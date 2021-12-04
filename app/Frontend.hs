@@ -143,7 +143,14 @@ addNotation :: ProverState -> Name -> [NotationBinding] -> SExpr -> Prover Prove
 addNotation (grammar, env, p) n ns s =
     case makeProdRule n ns s of
         Left err -> throwExt (Parser (show err))
-        Right prod -> pure (M.adjust (prod:) n grammar, env, p)
+        Right prod -> do
+            ns <- get
+            case elimLeftRec ns (M.adjust (prod:) n grammar) of
+                (Right g,ns) -> do
+                    put ns
+                    liftIO (print (fmap (fmap snd) g))
+                    pure (g, env, p)
+                (Left err,ns) -> throwExt (Parser (show err))
 
 beginProof :: ProverState -> Term -> Prover ProverState
 beginProof (grammar, env, Nothing) t = pure (grammar, env, Just (t, Hole, [mempty]))
@@ -165,7 +172,7 @@ envCtx (_, env, _) = envToElabCtx env
 
 parseProof :: ProverState -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
 parseProof (grammar, env, p) ctx t =
-    case parse False grammar nt_PROOF t of
+    case parse grammar nt_PROOF t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
@@ -175,7 +182,7 @@ parseProof (grammar, env, p) ctx t =
 
 parseMonotype :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseMonotype (grammar, env, p) ctx t =
-    case parse False grammar nt_SORT t of
+    case parse grammar nt_SORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
@@ -185,7 +192,7 @@ parseMonotype (grammar, env, p) ctx t =
 
 parseProp :: ProverState -> ElabCtx -> T.Text -> Prover (Term, ProverState)
 parseProp (grammar, env, p) ctx t =
-    case parse False grammar nt_PROP t of
+    case parse grammar nt_PROP t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
@@ -195,7 +202,7 @@ parseProp (grammar, env, p) ctx t =
 
 parseSort :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseSort (grammar, env, p) ctx t =
-    case parse False grammar nt_SORT t of
+    case parse grammar nt_SORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
@@ -205,16 +212,16 @@ parseSort (grammar, env, p) ctx t =
 
 parseNotationBinding :: ProverState -> T.Text -> Prover (Name, [NotationBinding])
 parseNotationBinding (grammar, env, p) t =
-    case parse False grammar nt_NOTATION t of
+    case parse grammar nt_NOTATION t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             case runElaborator [] mempty (elabNotation s) of
                 ((Right o, _), _) -> pure o
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
-parseNotationProduct :: ProverState -> Name -> T.Text -> Prover SExpr
-parseNotationProduct (grammar, env, p) n t =
-    case parse True grammar n t of
+parseNotationProduct :: ProverState -> M.Map Name [Name] -> Name -> T.Text -> Prover SExpr
+parseNotationProduct (grammar, env, p) ps n t = do
+    case parseWithPlaceholders ps grammar n t of
         Left err -> throwExt (Parser (show err))
         Right s -> pure s
 
@@ -244,8 +251,7 @@ newSortExt s n = pure (insertSort n s)
 notationExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 notationExt s (b, e) = do
     (t,b') <- parseNotationBinding s b
-    liftIO (print e)
-    e' <- parseNotationProduct s t e
+    e' <- parseNotationProduct s (placeholderNonterminals b') t e
     addNotation s t b' e'
 
 beginProofExt :: ProverState -> T.Text -> Prover ProverState

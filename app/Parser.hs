@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-module Parser (parse, elimLeftRec) where
+module Parser (parse, elimLeftRec, parseWithPlaceholders) where
 
 import ParserTypes
 import Tokenize
@@ -108,26 +108,26 @@ matchTerminal (Any k) t@(Tok k' _) | k == k' = pure t
 matchTerminal (Nonterminal x) _ = throwError (NotTerminal x)
 matchTerminal s t = throwError (NoMatch s t)
 
-match :: Bool -> Symbol -> Parser SExpr
-match p (Nonterminal x) = parseNonterminal p x
-match p t = do
+match :: Symbol -> Parser SExpr
+match (Nonterminal x) = parseNonterminal x
+match t = do
     t' <- next
     STok <$> matchTerminal t t'
 
-parseRule :: Bool -> ProdRule -> Parser SExpr
-parseRule p (f,xs) = do
-    toks <- mapM (match p) xs
+parseRule :: ProdRule -> Parser SExpr
+parseRule (f,xs) = do
+    toks <- mapM match xs
     case f toks of
         Just s -> pure s
         Nothing -> throwError (NoSExpr toks)
 
-parseNonterminal :: Bool -> Name -> Parser SExpr
-parseNonterminal p n = do
+parseNonterminal :: Name -> Parser SExpr
+parseNonterminal n = do
     g <- ask
     case M.lookup n g of
         Just gs -> do
             v <- get
-            alternatives v (map (parseRule p) gs)
+            alternatives v (map parseRule gs)
         Nothing -> throwError (NotNonterminal n)
 
 {- everything wrapped up -}
@@ -138,12 +138,17 @@ runParserGenerator s = flip runState s . runExceptT
 runParser :: V.Vector Tok -> Grammar -> Parser a -> (Either ParseError a, V.Vector Tok)
 runParser s r = flip runState s . flip runReaderT r . runExceptT
 
-parse :: Bool -> Grammar -> Name -> T.Text -> Either ParseError SExpr
-parse p g n t =
-    let (a,b) = runParser (tokenize t) g (parseNonterminal p n)
+parse :: Grammar -> Name -> T.Text -> Either ParseError SExpr
+parse g n t =
+    let (a,b) = runParser (tokenize t) g (parseNonterminal n)
     in if not (V.null b) then
             throwError (LeftoverInput b)
         else a
+
+parseWithPlaceholders :: M.Map Name [Name] -> Grammar -> Name -> T.Text -> Either ParseError SExpr
+parseWithPlaceholders p g = parse (M.mapWithKey (\n gs -> case M.lookup n p of
+    Just ps -> ((\x -> (Just . head, [Exact (Tok Placeholder x)])) <$> ps) ++ gs
+    Nothing -> gs) g)
 
 elimLeftRec :: [Name] -> Grammar -> (Either ParseError Grammar, [Name])
 elimLeftRec xs g = runParserGenerator xs (rmIndirectLR g)

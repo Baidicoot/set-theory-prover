@@ -1,4 +1,5 @@
-module Notation (makeProdRule) where
+{-# LANGUAGE LambdaCase #-}
+module Notation (makeProdRule,placeholderNonterminals) where
 
 import ParserTypes
 import Control.Monad
@@ -12,10 +13,15 @@ acceptsSymbols (BindNonterminal s _:tks) = Nonterminal s:acceptsSymbols tks
 acceptsSymbols [] = []
 
 bindSymbols :: [NotationBinding] -> [SExpr] -> Maybe (M.Map Name SExpr)
-bindSymbols (BindNonterminal _ n:xs) (t:ss) = M.insert n t <$> bindSymbols xs ss
+bindSymbols (BindNonterminal s n:xs) (t:ss) = M.insert n t <$> bindSymbols xs ss
 bindSymbols (_:xs) (_:ss) = bindSymbols xs ss
 bindSymbols [] [] = pure M.empty
 bindSymbols _ _ = Nothing
+
+placeholderNonterminals :: [NotationBinding] -> M.Map Name [Name]
+placeholderNonterminals = foldr (\case
+    BindNonterminal s n -> M.alter (Just . (n:) . concat) s
+    _ -> id) M.empty
 
 substSExpr :: M.Map Name SExpr -> SExpr -> Maybe SExpr
 substSExpr m (SExpr n xs) = SExpr n <$> mapM (substSExpr m) xs
