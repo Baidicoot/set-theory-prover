@@ -9,6 +9,9 @@ import ParserTypes
 isBracketChar :: Char -> Bool
 isBracketChar = flip elem "{}[]()"
 
+isEscapeChar :: Char -> Bool
+isEscapeChar = flip elem "`"
+
 isSpaceChar :: Char -> Bool
 isSpaceChar = isSpace
 
@@ -21,6 +24,7 @@ isIdentChar = isAlphaNum
 eatToken :: T.Text -> Maybe (Tok,T.Text)
 eatToken cs
     | T.length cs == 0 = Nothing
+    | isEscapeChar (T.head cs) = Just (Tok Placeholder $ T.takeWhile isIdentChar (T.tail cs), T.dropWhile isIdentChar (T.tail cs))
     | isIdentChar (T.head cs) = Just (Tok Ident $ T.takeWhile isIdentChar cs, T.dropWhile isIdentChar cs)
     | isBracketChar (T.head cs) = Just (Tok Bracket $ T.take 1 cs, T.tail cs)
     | isSymbolChar (T.head cs) = Just (Tok Symbol $ T.takeWhile isSymbolChar cs, T.dropWhile isSymbolChar cs)

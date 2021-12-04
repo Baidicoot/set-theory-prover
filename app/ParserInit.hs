@@ -6,10 +6,11 @@ import ParserTypes
 import qualified Data.Map as M
 import qualified Data.Text as T
 
-nt_PROOF, nt_SORT, nt_PROP :: Name
+nt_PROOF, nt_SORT, nt_PROP, nt_NOTATION :: Name
 nt_PROOF = "PROOF"
 nt_SORT = "SORT"
 nt_PROP = "PROP"
+nt_NOTATION = "NOTATION"
 
 makeLispGrammar :: Name -> Grammar
 makeLispGrammar n = M.fromList
@@ -25,10 +26,11 @@ makeLispGrammar n = M.fromList
             ,[Any Ident])])
     ]
 
-gr_PROOF, gr_SORT, gr_PROP :: Grammar
+gr_PROOF, gr_SORT, gr_PROP, gr_NOTATION :: Grammar
 gr_PROOF = makeLispGrammar nt_PROOF
 gr_SORT = makeLispGrammar nt_SORT
 gr_PROP = makeLispGrammar nt_PROP
+gr_NOTATION = makeLispGrammar nt_NOTATION
 
 gr_INIT :: Grammar
-gr_INIT = M.unions [gr_PROOF, gr_SORT, gr_PROP]
+gr_INIT = M.unions [gr_PROOF, gr_SORT, gr_PROP, gr_NOTATION]

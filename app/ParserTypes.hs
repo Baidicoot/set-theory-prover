@@ -54,6 +54,7 @@ data TokKind
     = Ident
     | Bracket
     | Symbol
+    | Placeholder
     deriving(Eq,Ord,Show)
 
 data Symbol
@@ -66,6 +67,15 @@ instance Show Symbol where
     show (Any k) = "<" ++ show k ++ ">"
     show (Exact t) = show t
     show (Nonterminal x) = T.unpack x
+
+data NotationError
+    = UnknownPlaceholder (S.Set Name)
+    | MultiplyBound Name
+    deriving(Show)
+
+data NotationBinding
+    = BindNonterminal Name Name
+    | ExactToken Tok
 
 type TreeRewrite = [SExpr] -> Maybe SExpr
 

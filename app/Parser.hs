@@ -88,6 +88,14 @@ next = do
     else
         put (V.tail v) >> pure (V.head v)
 
+peek :: Parser Tok
+peek = do
+    v <- get
+    if V.null v then
+        throwError EndOfInput
+    else
+        pure (V.head v)
+
 alternatives :: V.Vector Tok -> [Parser a] -> Parser a
 alternatives _ [g] = g
 alternatives v (f:gs) = do
@@ -100,26 +108,26 @@ matchTerminal (Any k) t@(Tok k' _) | k == k' = pure t
 matchTerminal (Nonterminal x) _ = throwError (NotTerminal x)
 matchTerminal s t = throwError (NoMatch s t)
 
-match :: Symbol -> Parser SExpr
-match (Nonterminal x) = parseNonterminal x
-match t = do
+match :: Bool -> Symbol -> Parser SExpr
+match p (Nonterminal x) = parseNonterminal p x
+match p t = do
     t' <- next
     STok <$> matchTerminal t t'
 
-parseRule :: ProdRule -> Parser SExpr
-parseRule (f,xs) = do
-    toks <- mapM match xs
+parseRule :: Bool -> ProdRule -> Parser SExpr
+parseRule p (f,xs) = do
+    toks <- mapM (match p) xs
     case f toks of
         Just s -> pure s
         Nothing -> throwError (NoSExpr toks)
 
-parseNonterminal :: Name -> Parser SExpr
-parseNonterminal n = do
+parseNonterminal :: Bool -> Name -> Parser SExpr
+parseNonterminal p n = do
     g <- ask
     case M.lookup n g of
         Just gs -> do
             v <- get
-            alternatives v (map parseRule gs)
+            alternatives v (map (parseRule p) gs)
         Nothing -> throwError (NotNonterminal n)
 
 {- everything wrapped up -}
@@ -130,9 +138,9 @@ runParserGenerator s = flip runState s . runExceptT
 runParser :: V.Vector Tok -> Grammar -> Parser a -> (Either ParseError a, V.Vector Tok)
 runParser s r = flip runState s . flip runReaderT r . runExceptT
 
-parse :: Grammar -> Name -> T.Text -> Either ParseError SExpr
-parse g n t =
-    let (a,b) = runParser (tokenize t) g (parseNonterminal n)
+parse :: Bool -> Grammar -> Name -> T.Text -> Either ParseError SExpr
+parse p g n t =
+    let (a,b) = runParser (tokenize t) g (parseNonterminal p n)
     in if not (V.null b) then
             throwError (LeftoverInput b)
         else a

@@ -128,5 +128,16 @@ elabProof x = do
         Implicit -> error "UNREACHABLE"
         Global -> pure (Axiom n)
 
+elabNotation :: SExpr -> Elaborator (Name, [NotationBinding])
+elabNotation (SExpr t xs) = (t,) <$> mapM elabNotationBinding xs
+elabNotation x = throwError (ElabError x "expected notation")
+
+elabNotationBinding :: SExpr -> Elaborator NotationBinding
+elabNotationBinding (SExpr s [x]) = do
+    n <- elabIdent x
+    pure (BindNonterminal s n)
+elabNotationBinding (STok t) = pure (ExactToken t)
+elabNotationBinding x = throwError (ElabError x "expected nonterminal or token")
+
 runElaborator :: [Name] -> ElabCtx -> Elaborator a -> ((Either ParseError a, [ElabCtx]), [Name])
 runElaborator n c = flip runState n . flip runReaderT c . runWriterT . runExceptT

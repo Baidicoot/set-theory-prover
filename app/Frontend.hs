@@ -1,6 +1,17 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Frontend (initialState, refineExt, assertExt, newSortExt, newConstExt, beginProofExt, endProofExt, runExt, TracedError) where
+module Frontend
+    ( initialState
+    , refineExt
+    , assertExt
+    , newSortExt
+    , newConstExt
+    , beginProofExt
+    , endProofExt
+    , notationExt
+    , runExt
+    , TracedError)
+    where
 
 -- TODO: Check `Prop`s when asserting.
 
@@ -16,6 +27,7 @@ import ParserTypes
 import ParserInit
 import Parser
 import Elab
+import Notation
 
 import Control.Monad.State
 import Control.Monad.Except
@@ -127,6 +139,12 @@ refine (grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p o
         in checkProof state' prop prf' >> pure state'
     Nothing -> throwExt NoOpenGoals
 
+addNotation :: ProverState -> Name -> [NotationBinding] -> SExpr -> Prover ProverState
+addNotation (grammar, env, p) n ns s =
+    case makeProdRule n ns s of
+        Left err -> throwExt (Parser (show err))
+        Right prod -> pure (M.adjust (prod:) n grammar, env, p)
+
 beginProof :: ProverState -> Term -> Prover ProverState
 beginProof (grammar, env, Nothing) t = pure (grammar, env, Just (t, Hole, [mempty]))
 beginProof _ _ = throwExt InProofMode
@@ -147,7 +165,7 @@ envCtx (_, env, _) = envToElabCtx env
 
 parseProof :: ProverState -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
 parseProof (grammar, env, p) ctx t =
-    case parse grammar nt_PROOF t of
+    case parse False grammar nt_PROOF t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
@@ -157,7 +175,7 @@ parseProof (grammar, env, p) ctx t =
 
 parseMonotype :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseMonotype (grammar, env, p) ctx t =
-    case parse grammar nt_SORT t of
+    case parse False grammar nt_SORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
@@ -167,7 +185,7 @@ parseMonotype (grammar, env, p) ctx t =
 
 parseProp :: ProverState -> ElabCtx -> T.Text -> Prover (Term, ProverState)
 parseProp (grammar, env, p) ctx t =
-    case parse grammar nt_PROP t of
+    case parse False grammar nt_PROP t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
@@ -177,13 +195,28 @@ parseProp (grammar, env, p) ctx t =
 
 parseSort :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseSort (grammar, env, p) ctx t =
-    case parse grammar nt_SORT t of
+    case parse False grammar nt_SORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- get
             case runElaborator names ctx (elabSort s) of
                 ((Right o, _), names') -> put names' >> pure (o, (grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
+
+parseNotationBinding :: ProverState -> T.Text -> Prover (Name, [NotationBinding])
+parseNotationBinding (grammar, env, p) t =
+    case parse False grammar nt_NOTATION t of
+        Left err -> throwExt (Parser (show err))
+        Right s -> do
+            case runElaborator [] mempty (elabNotation s) of
+                ((Right o, _), _) -> pure o
+                ((Left err, _), _) -> throwExt (Parser (show err))
+
+parseNotationProduct :: ProverState -> Name -> T.Text -> Prover SExpr
+parseNotationProduct (grammar, env, p) n t =
+    case parse True grammar n t of
+        Left err -> throwExt (Parser (show err))
+        Right s -> pure s
 
 {-
 parseProd :: ProverState -> T.Text -> T.Text -> Prover ProdRule
@@ -208,9 +241,12 @@ assertExt s (n, t) = do
 newSortExt :: ProverState -> T.Text -> Prover ProverState
 newSortExt s n = pure (insertSort n s)
 
-{-
-notationExt :: IORef ProverState -> T.Text -> T.Text -> Prover ()
--}
+notationExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
+notationExt s (b, e) = do
+    (t,b') <- parseNotationBinding s b
+    liftIO (print e)
+    e' <- parseNotationProduct s t e
+    addNotation s t b' e'
 
 beginProofExt :: ProverState -> T.Text -> Prover ProverState
 beginProofExt s t = do
@@ -218,7 +254,7 @@ beginProofExt s t = do
     beginProof s' p
 
 endProofExt :: ProverState -> T.Text -> Prover ProverState
-endProofExt s n = endProof s n
+endProofExt = endProof
 
 {- references to IORef through CLOSURES! -}
 
