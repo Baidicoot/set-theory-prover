@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-module Parser (parse, elimLeftRec, parseWithPlaceholders) where
+module Parser (parse, elimLeftRec) where
 
 import ParserTypes
 import Tokenize
@@ -144,11 +144,6 @@ parse g n t =
     in if not (V.null b) then
             throwError (LeftoverInput b)
         else a
-
-parseWithPlaceholders :: M.Map Name [Name] -> Grammar -> Name -> T.Text -> Either ParseError SExpr
-parseWithPlaceholders p g = parse (M.mapWithKey (\n gs -> case M.lookup n p of
-    Just ps -> ((\x -> (Just . head, [Exact (Tok Placeholder x)])) <$> ps) ++ gs
-    Nothing -> gs) g)
 
 elimLeftRec :: [Name] -> Grammar -> (Either ParseError Grammar, [Name])
 elimLeftRec xs g = runParserGenerator xs (rmIndirectLR g)

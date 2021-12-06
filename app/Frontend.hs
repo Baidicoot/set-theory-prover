@@ -1,5 +1,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 module Frontend
     ( initialState
     , refineExt
@@ -10,7 +11,8 @@ module Frontend
     , endProofExt
     , notationExt
     , runExt
-    , TracedError)
+    , TracedError
+    , ProverState)
     where
 
 -- TODO: Check `Prop`s when asserting.
@@ -33,6 +35,7 @@ import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Exception
+import Data.List (partition)
 
 import qualified Foreign.Lua as L
 
@@ -42,10 +45,32 @@ newtype ConstSorts = Sorts (S.Set Name) deriving(Show)
 newtype Axioms = Axioms (M.Map Name Term) deriving(Show)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
--- names, grammar, global environment, current proof and local names for each goal (if applicable)
+-- names, reference grammar, global environment, current proof and local names for each goal (if applicable)
 type ProverState = (Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
 
-type Prover = ExceptT TracedError (StateT [Name] L.Lua)
+type Prover = ExceptT TracedError (StateT ([Name],Maybe Grammar) L.Lua)
+
+getNames :: Prover [Name]
+getNames = gets fst
+
+putNames :: [Name] -> Prover ()
+putNames ns = modify (\(_,g) -> (ns,g))
+
+compileGrammar :: ProverState -> Prover Grammar
+compileGrammar (grammar, _, _) = do
+    x <- gets snd
+    case x of
+        Just g -> pure g
+        Nothing -> do
+            ns <- getNames
+            case elimLeftRec ns grammar of
+                (Right g,ns) -> do
+                    put (ns,Just g)
+                    pure g
+                (Left err,ns) -> throwExt (Parser (show err))
+
+uncompileGrammar :: Prover ()
+uncompileGrammar = modify (\(ns,_)->(ns,Nothing))
 
 data TracedError
     = TracedError NormalError [(String,String)] deriving(Show)
@@ -66,7 +91,7 @@ throwExt = throwError . flip TracedError []
 traceAs :: String -> String -> Prover a -> Prover a
 traceAs x i f = catchError f (\(TracedError e xs) -> throwError (TracedError e ((x,i):xs)))
 
-runExt :: Show i => String -> (ProverState -> i -> Prover ProverState) -> IORef (ProverState,[Name]) -> i -> L.Lua L.NumResults
+runExt :: Show i => String -> (ProverState -> i -> Prover ProverState) -> IORef (ProverState,([Name],Maybe Grammar)) -> i -> L.Lua L.NumResults
 runExt n f state i = do
     (s,ns) <- liftIO (readIORef state)
     (s',ns') <- runProver (traceAs n (show i) $ f s i) ns
@@ -74,7 +99,7 @@ runExt n f state i = do
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
         Left err -> L.raiseError (show err)
 
-runProver :: Prover i -> [Name] -> L.Lua (Either TracedError i, [Name])
+runProver :: Prover i -> ([Name],Maybe Grammar) -> L.Lua (Either TracedError i, ([Name],Maybe Grammar))
 runProver f = runStateT (runExceptT f)
 
 envToElabCtx :: Env -> ElabCtx
@@ -119,16 +144,16 @@ fillHole _ _ = Nothing
 
 checkProof :: ProverState -> Term -> Proof -> Prover [Term]
 checkProof (_, env, _) prop prf = do
-    names <- get
+    names <- getNames
     case runProofCheck names (envToCtx env) prop prf of
-        (Right (_, holes), names') -> put names' >> pure holes
+        (Right (_, holes), names') -> putNames names' >> pure holes
         (Left err, _) -> throwExt (Checker (show err))
 
 checkProp :: ProverState -> Monotype -> Term -> Prover Term
 checkProp (_, env, _) sort prop = do
-    names <- get
+    names <- getNames
     case runPropCheck names (envToCtx env) sort prop of
-        (Right t, names') -> put names' >> pure t
+        (Right t, names') -> putNames names' >> pure t
         (Left err, _) -> throwExt (Checker (show err))
 
 refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
@@ -143,14 +168,7 @@ addNotation :: ProverState -> Name -> [NotationBinding] -> SExpr -> Prover Prove
 addNotation (grammar, env, p) n ns s =
     case makeProdRule n ns s of
         Left err -> throwExt (Parser (show err))
-        Right prod -> do
-            ns <- get
-            case elimLeftRec ns (M.adjust (prod:) n grammar) of
-                (Right g,ns) -> do
-                    put ns
-                    liftIO (print (fmap (fmap snd) g))
-                    pure (g, env, p)
-                (Left err,ns) -> throwExt (Parser (show err))
+        Right prod -> uncompileGrammar >> pure (M.adjust (prod:) n grammar, env, p)
 
 beginProof :: ProverState -> Term -> Prover ProverState
 beginProof (grammar, env, Nothing) t = pure (grammar, env, Just (t, Hole, [mempty]))
@@ -170,78 +188,92 @@ goalCtx _ = throwExt NotInProofMode
 envCtx :: ProverState -> ElabCtx
 envCtx (_, env, _) = envToElabCtx env
 
-parseProof :: ProverState -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
-parseProof (grammar, env, p) ctx t =
-    case parse grammar nt_PROOF t of
+parseProof :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
+parseProof s@(grammar, env, p) g ctx t =
+    case parse g nt_PROOF t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
-            names <- get
+            names <- getNames
             case runElaborator names ctx (elabProof s) of
-                ((Right o, ctx'), names') -> put names' >> pure (o, ctx', (grammar, env, p))
+                ((Right o, ctx'), names') -> putNames names' >> pure (o, ctx', (grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
-parseMonotype :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
-parseMonotype (grammar, env, p) ctx t =
-    case parse grammar nt_SORT t of
+parseMonotype :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
+parseMonotype (grammar, env, p) g ctx t =
+    case parse g nt_SORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
-            names <- get
+            names <- getNames
             case runElaborator names ctx (elabMonotype s) of
-                ((Right o, _), names') -> put names' >> pure (o, (grammar, env, p))
+                ((Right o, _), names') -> putNames names' >> pure (o, (grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
-parseProp :: ProverState -> ElabCtx -> T.Text -> Prover (Term, ProverState)
-parseProp (grammar, env, p) ctx t =
-    case parse grammar nt_PROP t of
+parseProp :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Term, ProverState)
+parseProp (grammar, env, p) g ctx t =
+    case parse g nt_PROP t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
-            names <- get
+            names <- getNames
             case runElaborator names ctx (elabProp s) of
-                ((Right o, _), names') -> put names' >> pure (o, (grammar, env, p))
+                ((Right o, _), names') -> putNames names' >> pure (o, (grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
-parseSort :: ProverState -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
-parseSort (grammar, env, p) ctx t =
-    case parse grammar nt_SORT t of
+parseSort :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
+parseSort (grammar, env, p) g ctx t =
+    case parse g nt_SORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
-            names <- get
+            names <- getNames
             case runElaborator names ctx (elabSort s) of
-                ((Right o, _), names') -> put names' >> pure (o, (grammar, env, p))
+                ((Right o, _), names') -> putNames names' >> pure (o, (grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
-parseNotationBinding :: ProverState -> T.Text -> Prover (Name, [NotationBinding])
-parseNotationBinding (grammar, env, p) t =
-    case parse grammar nt_NOTATION t of
+parseNotationBinding :: ProverState -> Grammar -> T.Text -> Prover (Name, [NotationBinding])
+parseNotationBinding (grammar, env, p) g t =
+    case parse g nt_NOTATION t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             case runElaborator [] mempty (elabNotation s) of
                 ((Right o, _), _) -> pure o
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
-parseNotationProduct :: ProverState -> M.Map Name [Name] -> Name -> T.Text -> Prover SExpr
+parseNotationProduct :: ProverState -> S.Set Name -> Name -> T.Text -> Prover SExpr
 parseNotationProduct (grammar, env, p) ps n t = do
-    case parseWithPlaceholders ps grammar n t of
+    let grammar' = M.mapWithKey (\n gs ->
+            if n `S.member` ps then
+                (Just . head,[Any Placeholder]):gs
+            else gs) grammar
+    ns <- getNames
+    g <- case elimLeftRec ns grammar' of
+            (Right g,ns) -> do
+                putNames ns
+                pure g
+            (Left err,ns) -> throwExt (Parser (show err))
+    --liftIO (print (fmap (fmap snd) g))
+    case parse g n t of
         Left err -> throwExt (Parser (show err))
         Right s -> pure s
 
-{-
-parseProd :: ProverState -> T.Text -> T.Text -> Prover ProdRule
--}
-
 refineExt :: ProverState -> T.Text -> Prover ProverState
 refineExt s t = do
-    (p, ctxs', s') <- goalCtx s >>= \x -> parseProof s x t
+    (p, ctxs', s') <- do
+        ctx <- goalCtx s
+        g <- compileGrammar s
+        parseProof s g ctx t
     refine s (p, ctxs')
 
 newConstExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 newConstExt s (n, t) = do
-    (m, s') <- parseSort s (envCtx s) t
+    (m, s') <- do
+        g <- compileGrammar s
+        parseSort s g (envCtx s) t
     pure (insertConst n m s')
 
 assertExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 assertExt s (n, t) = do
-    (m, s') <- parseProp s (envCtx s) t
+    (m, s') <- do
+        g <- compileGrammar s
+        parseProp s g (envCtx s) t
     m' <- checkProp s' Prop m
     pure (insertAxiom n m' s')
 
@@ -250,23 +282,18 @@ newSortExt s n = pure (insertSort n s)
 
 notationExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 notationExt s (b, e) = do
-    (t,b') <- parseNotationBinding s b
+    (t,b') <- do
+        g <- compileGrammar s
+        parseNotationBinding s g b
     e' <- parseNotationProduct s (placeholderNonterminals b') t e
     addNotation s t b' e'
 
 beginProofExt :: ProverState -> T.Text -> Prover ProverState
 beginProofExt s t = do
-    (p, s') <- parseProp s (envCtx s) t
+    (p, s') <- do
+        g <- compileGrammar s
+        parseProp s g (envCtx s) t
     beginProof s' p
 
 endProofExt :: ProverState -> T.Text -> Prover ProverState
 endProofExt = endProof
-
-{- references to IORef through CLOSURES! -}
-
-{-
--- i.e.
-main = do
-    x <- newIORef mempty
-    Lua.registerHaskellFunction "reduce" (reduce x)
--}

@@ -18,10 +18,10 @@ bindSymbols (_:xs) (_:ss) = bindSymbols xs ss
 bindSymbols [] [] = pure M.empty
 bindSymbols _ _ = Nothing
 
-placeholderNonterminals :: [NotationBinding] -> M.Map Name [Name]
+placeholderNonterminals :: [NotationBinding] -> S.Set Name
 placeholderNonterminals = foldr (\case
-    BindNonterminal s n -> M.alter (Just . (n:) . concat) s
-    _ -> id) M.empty
+    BindNonterminal s n -> S.insert s
+    _ -> id) S.empty
 
 substSExpr :: M.Map Name SExpr -> SExpr -> Maybe SExpr
 substSExpr m (SExpr n xs) = SExpr n <$> mapM (substSExpr m) xs
