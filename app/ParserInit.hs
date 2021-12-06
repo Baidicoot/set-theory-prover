@@ -23,7 +23,9 @@ makeLispGrammar n = M.fromList
         [(\[_,STok (Tok _ k),SExpr _ xs,_] -> Just (SExpr k xs),
             [Exact (Tok Bracket "("), Any Ident, Nonterminal (T.append n "_LIST"), Exact (Tok Bracket ")")])
         ,(Just . head
-            ,[Any Ident])])
+            ,[Any Ident])
+        ,(Just . head
+            ,[Any Symbol])])
     ]
 
 gr_PROOF, gr_SORT, gr_PROP, gr_NOTATION :: Grammar

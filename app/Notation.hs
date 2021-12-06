@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-module Notation (makeProdRule,placeholderNonterminals) where
+module Notation (makeProdRule,placeholderNonterminals,addPlaceholders) where
 
 import ParserTypes
 import Control.Monad
@@ -25,7 +25,7 @@ placeholderNonterminals = foldr (\case
 
 substSExpr :: M.Map Name SExpr -> SExpr -> Maybe SExpr
 substSExpr m (SExpr n xs) = SExpr n <$> mapM (substSExpr m) xs
-substSExpr m (STok (Tok Placeholder n)) = M.lookup n m
+substSExpr m (STok (Tok (Escaped Ident) n)) = M.lookup n m
 substSExpr _ x = Just x
 
 boundSymbols :: [NotationBinding] -> Either NotationError (S.Set Name)
@@ -38,9 +38,15 @@ boundSymbols (BindNonterminal _ n:xs) = do
 boundSymbols (_:xs) = boundSymbols xs
 boundSymbols _ = Right mempty
 
+addPlaceholders :: S.Set Name -> Grammar -> Grammar
+addPlaceholders ps = M.mapWithKey (\n gs ->
+    if n `S.member` ps then
+        (Just . head,[Any (Escaped Ident)]):gs
+    else gs)
+
 usedSymbols :: SExpr -> S.Set Name
 usedSymbols (SExpr _ xs) = mconcat (fmap usedSymbols xs)
-usedSymbols (STok (Tok Placeholder n)) = S.singleton n
+usedSymbols (STok (Tok (Escaped Ident) n)) = S.singleton n
 usedSymbols _ = mempty
 
 makeProdRule :: Name -> [NotationBinding] -> SExpr -> Either NotationError ProdRule

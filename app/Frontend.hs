@@ -239,12 +239,8 @@ parseNotationBinding (grammar, env, p) g t =
 
 parseNotationProduct :: ProverState -> S.Set Name -> Name -> T.Text -> Prover SExpr
 parseNotationProduct (grammar, env, p) ps n t = do
-    let grammar' = M.mapWithKey (\n gs ->
-            if n `S.member` ps then
-                (Just . head,[Any Placeholder]):gs
-            else gs) grammar
     ns <- getNames
-    g <- case elimLeftRec ns grammar' of
+    g <- case elimLeftRec ns (addPlaceholders ps grammar) of
             (Right g,ns) -> do
                 putNames ns
                 pure g

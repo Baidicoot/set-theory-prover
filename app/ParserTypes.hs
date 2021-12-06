@@ -54,7 +54,7 @@ data TokKind
     = Ident
     | Bracket
     | Symbol
-    | Placeholder
+    | Escaped TokKind
     deriving(Eq,Ord,Show)
 
 data Symbol
