@@ -11,7 +11,10 @@ module Frontend
     , endProofExt
     , notationExt
     , printGrammarExt
+    , doneExt
+    , dieExt
     , runExt
+    , runActionExt
     , TracedError
     , ProverState)
     where
@@ -82,6 +85,7 @@ data NormalError
     | InProofMode
     | NoOpenGoals
     | OpenGoals
+    | Terminated
     | Parser String
     | Checker String
     deriving(Show)
@@ -96,6 +100,14 @@ runExt :: Show i => String -> (ProverState -> i -> Prover ProverState) -> IORef 
 runExt n f state i = do
     (s,ns) <- liftIO (readIORef state)
     (s',ns') <- runProver (traceAs n (show i) $ f s i) ns
+    case s' of
+        Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
+        Left err -> L.raiseError (show err)
+
+runActionExt :: String -> (ProverState -> Prover ProverState) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
+runActionExt n f state = do
+    (s,ns) <- liftIO (readIORef state)
+    (s',ns') <- runProver (traceAs n "" $ f s) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
         Left err -> L.raiseError (show err)
@@ -285,7 +297,14 @@ beginProofExt s t = do
 endProofExt :: ProverState -> T.Text -> Prover ProverState
 endProofExt = endProof
 
-printGrammarExt :: ProverState -> T.Text -> Prover ProverState
-printGrammarExt s@(g, _, _) _ = do
-    liftIO (print (fmap (fmap snd) g))
+printGrammarExt :: ProverState -> Prover ProverState
+printGrammarExt s@(g, _, _) = liftIO (print (fmap (fmap snd) g)) >> pure s
+
+doneExt :: ProverState -> Prover ProverState
+doneExt (_, _, Nothing) = throwExt NotInProofMode
+doneExt (_, _, Just (_, _, _:_)) = throwExt OpenGoals
+doneExt s@(_, _, Just (prop, _, [])) =
     pure s
+
+dieExt :: ProverState -> Prover ProverState
+dieExt _ = throwExt Terminated

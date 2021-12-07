@@ -33,8 +33,9 @@ runFile state filepath = L.run $ do
     L.registerHaskellFunction "endProof" (runExt "endProof" endProofExt state)
     L.registerHaskellFunction "const" (curry $ runExt "const" newConstExt state)
     L.registerHaskellFunction "notation" (curry $ runExt "notation" notationExt state)
-    L.registerHaskellFunction "die" (\x -> L.liftIO (putStrLn x) >> L.raiseError x)
-    L.registerHaskellFunction "printGrammar" (runExt "printGrammar" printGrammarExt state)
+    L.registerHaskellFunction "die" (runActionExt "die" dieExt state)
+    L.registerHaskellFunction "printGrammar" (runActionExt "printGrammar" printGrammarExt state)
+    L.registerHaskellFunction "done" (runActionExt "done" doneExt state)
     catchScriptError $ L.dofile filepath
 
 main :: IO ()
