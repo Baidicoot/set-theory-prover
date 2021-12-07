@@ -99,16 +99,16 @@ elabTerm x = do
       Implicit -> pure (MetaVar n)
 
 elabProof :: SExpr -> Elaborator Proof
-elabProof (SExpr "introsThm" [x,y,z]) = do
+elabProof (SExpr "introThm" [x,y,z]) = do
     n <- elabIdent x
     y' <- elabTerm y
     (n', z') <- freshen n Local Prf (elabProof z)
-    pure (IntrosThm n' y' z')
-elabProof (SExpr "introsObj" [x,y,z]) = do
+    pure (IntroThm n' y' z')
+elabProof (SExpr "introObj" [x,y,z]) = do
     n <- elabIdent x
     y' <- elabSort y
     (n', z') <- freshen n Local Prf (elabProof z)
-    pure (IntrosObj n' y' z')
+    pure (IntroObj n' y' z')
 elabProof (SExpr "modPon" [x,y]) = do
     x' <- elabProof x
     y' <- elabProof y

@@ -52,8 +52,8 @@ class Container a b where
 instance Container Proof Term where
     mapC f (ModPon a b) = liftM2 ModPon (mapC f a) (mapC f b)
     mapC f (UniElim p t) = liftM2 UniElim (mapC f p) (f t)
-    mapC f (IntrosObj n t p) = fmap (IntrosObj n t) (mapC f p)
-    mapC f (IntrosThm n t p) = liftM2 (IntrosThm n) (f t) (mapC f p)
+    mapC f (IntroObj n t p) = fmap (IntroObj n t) (mapC f p)
+    mapC f (IntroThm n t p) = liftM2 (IntroThm n) (f t) (mapC f p)
     mapC _ x = pure x
 
 instance Container Term Monotype where

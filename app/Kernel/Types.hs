@@ -56,6 +56,16 @@ discoverMetaVar x = do
 runInfer :: ([Name], MetaVarTypes) -> Infer a -> (Either ProofError a, ([Name], MetaVarTypes))
 runInfer s = flip runState s . runExceptT
 
+fillHole :: Proof -> Proof -> Maybe Proof
+fillHole Hole p = pure p
+fillHole (ModPon a b) p = case fillHole a p of
+    Just a' -> pure (ModPon a' b)
+    Nothing -> ModPon a <$> fillHole b p
+fillHole (IntroThm n t a) p = IntroThm n t <$> fillHole a p
+fillHole (IntroObj n t a) p = IntroObj n t <$> fillHole a p
+fillHole (UniElim a t) p = flip UniElim t <$> fillHole a p
+fillHole _ _ = Nothing
+
 data DeBrujin
     = DLam DeBrujin
     | DApp DeBrujin DeBrujin
@@ -91,9 +101,9 @@ data Polytype
 
 data Proof
     = ModPon Proof Proof
-    | IntrosThm Name Term Proof
+    | IntroThm Name Term Proof
     | UniElim Proof Term
-    | IntrosObj Name Monotype Proof
+    | IntroObj Name Monotype Proof
     | Axiom Name
     | Param Name
     | Hole

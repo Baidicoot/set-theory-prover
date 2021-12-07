@@ -63,7 +63,7 @@ instThm t = do
 
 -- add things for checking props inside this
 checkThm :: Ctx -> Term -> Proof -> Infer (Term, [Term], FullSubst)
-checkThm ctx e0 (IntrosThm n t p) = do
+checkThm ctx e0 (IntroThm n t p) = do
     (s0,_) <- inferObj (snd3 ctx) t
     e1 <- MetaVar <$> fresh
     e2 <- MetaVar <$> fresh
@@ -80,7 +80,7 @@ checkThm ctx e0 (IntrosThm n t p) = do
     e2''' <- substFull f2 e2''
     h' <- mapM (substFull f2) h
     pure (Imp e1''' e2''',h',composeFull f2 (composeFull f1 f0))
-checkThm ctx e0 (IntrosObj n t p) = do
+checkThm ctx e0 (IntroObj n t p) = do
     t0 <- TyVar <$> fresh
     e1 <- MetaVar <$> fresh
     x' <- fresh
@@ -125,7 +125,7 @@ inferThm ctx (ModPon p0 p1) = do
     h0'' <- mapM (substFull f2) h0'
     h1' <- mapM (substFull f2) h1
     pure (e2,h0''++h1',composeFull f2 (composeFull f1 f0))
-inferThm ctx (IntrosThm n e0 p) = do
+inferThm ctx (IntroThm n e0 p) = do
     (s0,_) <- inferObj (snd3 ctx) e0
     (e1,h,f1) <- inferThm (addThm n e0 ctx) p
     e0' <- substFull f1 e0
@@ -142,5 +142,5 @@ inferThm ctx (UniElim p0 e0) = do
             pure (App (Lam x e) e0',h,f1)
         _ -> throwError (NotForall p0 e0)
 {- maybe replace this with something that attempts to? -}
-inferThm ctx (IntrosObj n t p) = throwError (CantInferHigherOrder n p)
+inferThm ctx (IntroObj n t p) = throwError (CantInferHigherOrder n p)
 inferThm ctx Hole = (\t -> (t,[t],(M.empty,M.empty))) . MetaVar <$> fresh

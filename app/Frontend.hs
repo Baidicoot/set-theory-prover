@@ -10,6 +10,7 @@ module Frontend
     , beginProofExt
     , endProofExt
     , notationExt
+    , printGrammarExt
     , runExt
     , TracedError
     , ProverState)
@@ -131,16 +132,6 @@ envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
         defctx = fmap snd defobjs
         thmctx = ax
     in (thmctx,objctx,defctx)
-
-fillHole :: Proof -> Proof -> Maybe Proof
-fillHole Hole p = pure p
-fillHole (ModPon a b) p = case fillHole a p of
-    Just a' -> pure (ModPon a' b)
-    Nothing -> ModPon a <$> fillHole b p
-fillHole (IntrosThm n t a) p = IntrosThm n t <$> fillHole a p
-fillHole (IntrosObj n t a) p = IntrosObj n t <$> fillHole a p
-fillHole (UniElim a t) p = flip UniElim t <$> fillHole a p
-fillHole _ _ = Nothing
 
 checkProof :: ProverState -> Term -> Proof -> Prover [Term]
 checkProof (_, env, _) prop prf = do
@@ -293,3 +284,8 @@ beginProofExt s t = do
 
 endProofExt :: ProverState -> T.Text -> Prover ProverState
 endProofExt = endProof
+
+printGrammarExt :: ProverState -> T.Text -> Prover ProverState
+printGrammarExt s@(g, _, _) _ = do
+    liftIO (print (fmap (fmap snd) g))
+    pure s
