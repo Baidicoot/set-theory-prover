@@ -59,12 +59,14 @@ data TokKind
 
 data Symbol
     = Any TokKind
+    | AnyEscaped
     | Exact Tok
     | Nonterminal Name
     deriving(Eq,Ord)
 
 instance Show Symbol where
     show (Any k) = "<" ++ show k ++ ">"
+    show AnyEscaped = "<Escaped>"
     show (Exact t) = show t
     show (Nonterminal x) = T.unpack x
 

@@ -8,6 +8,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 
 acceptsSymbols :: [NotationBinding] -> [Symbol]
+acceptsSymbols (ExactToken (Tok (Escaped k) t):tks) = Exact (Tok k t):acceptsSymbols tks
 acceptsSymbols (ExactToken t:tks) = Exact t:acceptsSymbols tks
 acceptsSymbols (BindNonterminal s _:tks) = Nonterminal s:acceptsSymbols tks
 acceptsSymbols [] = []

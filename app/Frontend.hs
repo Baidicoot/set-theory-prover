@@ -111,7 +111,7 @@ envToElabCtx (Sorts s, ConstObjs o, DefObjs d, Axioms a) =
     in sorts `M.union` consts `M.union` defs `M.union` axioms
 
 initialState :: ProverState
-initialState = (gr_INIT, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
+initialState = (grINIT, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
 
 insertAxiom :: Name -> Term -> ProverState -> ProverState
 insertAxiom n m (grammar, (s,o,d,Axioms a), goal) =
@@ -190,7 +190,7 @@ envCtx (_, env, _) = envToElabCtx env
 
 parseProof :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
 parseProof s@(grammar, env, p) g ctx t =
-    case parse g nt_PROOF t of
+    case parse g ntPROOF t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
@@ -200,7 +200,7 @@ parseProof s@(grammar, env, p) g ctx t =
 
 parseMonotype :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseMonotype (grammar, env, p) g ctx t =
-    case parse g nt_SORT t of
+    case parse g ntSORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
@@ -210,7 +210,7 @@ parseMonotype (grammar, env, p) g ctx t =
 
 parseProp :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Term, ProverState)
 parseProp (grammar, env, p) g ctx t =
-    case parse g nt_PROP t of
+    case parse g ntPROP t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
@@ -220,7 +220,7 @@ parseProp (grammar, env, p) g ctx t =
 
 parseSort :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseSort (grammar, env, p) g ctx t =
-    case parse g nt_SORT t of
+    case parse g ntSORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
@@ -230,7 +230,7 @@ parseSort (grammar, env, p) g ctx t =
 
 parseNotationBinding :: ProverState -> Grammar -> T.Text -> Prover (Name, [NotationBinding])
 parseNotationBinding (grammar, env, p) g t =
-    case parse g nt_NOTATION t of
+    case parse g ntNOTATION t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             case runElaborator [] mempty (elabNotation s) of

@@ -6,11 +6,11 @@ import ParserTypes
 import qualified Data.Map as M
 import qualified Data.Text as T
 
-nt_PROOF, nt_SORT, nt_PROP, nt_NOTATION :: Name
-nt_PROOF = "PROOF"
-nt_SORT = "SORT"
-nt_PROP = "PROP"
-nt_NOTATION = "NOTATION"
+ntPROOF, ntSORT, ntPROP, ntNOTATION :: Name
+ntPROOF = "PROOF"
+ntSORT = "SORT"
+ntPROP = "PROP"
+ntNOTATION = "NOTATION"
 
 makeLispGrammar :: Name -> Grammar
 makeLispGrammar n = M.fromList
@@ -21,18 +21,18 @@ makeLispGrammar n = M.fromList
             [])])
     ,(n,
         [(\[_,STok (Tok _ k),SExpr _ xs,_] -> Just (SExpr k xs),
-            [Exact (Tok Bracket "("), Any Ident, Nonterminal (T.append n "_LIST"), Exact (Tok Bracket ")")])
+            [Exact (Tok Bracket "["), Any Ident, Nonterminal (T.append n "_LIST"), Exact (Tok Bracket "]")])
         ,(Just . head
             ,[Any Ident])
         ,(Just . head
-            ,[Any Symbol])])
+            ,[AnyEscaped])])
     ]
 
-gr_PROOF, gr_SORT, gr_PROP, gr_NOTATION :: Grammar
-gr_PROOF = makeLispGrammar nt_PROOF
-gr_SORT = makeLispGrammar nt_SORT
-gr_PROP = makeLispGrammar nt_PROP
-gr_NOTATION = makeLispGrammar nt_NOTATION
+grPROOF, grSORT, grPROP, grNOTATION :: Grammar
+grPROOF = makeLispGrammar ntPROOF
+grSORT = makeLispGrammar ntSORT
+grPROP = makeLispGrammar ntPROP
+grNOTATION = makeLispGrammar ntNOTATION
 
-gr_INIT :: Grammar
-gr_INIT = M.unions [gr_PROOF, gr_SORT, gr_PROP, gr_NOTATION]
+grINIT :: Grammar
+grINIT = M.unions [grPROOF, grSORT, grPROP, grNOTATION]

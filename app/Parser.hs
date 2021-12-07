@@ -104,6 +104,7 @@ alternatives _ [] = throwError EmptyAlternative
 
 matchTerminal :: Symbol -> Tok -> Parser Tok
 matchTerminal (Exact t) t' | t == t' = pure t
+matchTerminal AnyEscaped t@(Tok (Escaped _) _) = pure t
 matchTerminal (Any k) t@(Tok k' _) | k == k' = pure t
 matchTerminal (Nonterminal x) _ = throwError (NotTerminal x)
 matchTerminal s t = throwError (NoMatch s t)
