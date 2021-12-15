@@ -40,7 +40,8 @@ executable set-theory-prover
         Elab,
         Frontend,
         ParserInit,
-        Notation
+        Notation,
+        TestLR
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

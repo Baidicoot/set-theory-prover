@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 module Parser (parse, elimLeftRec) where
 
 import ParserTypes
@@ -16,6 +17,7 @@ import Data.Foldable (foldlM)
 
 import Data.Bifunctor (bimap)
 import Data.List (partition)
+import Data.Maybe (mapMaybe)
 
 {- https://en.wikipedia.org/wiki/Left_recursion#Removing_all_left_recursion -}
 {- https://www.csd.uwo.ca/~mmorenom/CS447/Lectures/Syntax.html/node8.html -}
@@ -29,6 +31,7 @@ fresh = do
 
 {- tree rewrites to preserve structure after removal of LR -}
 
+{-
 rewritePartial :: TreeRewrite -> TreeRewrite
 rewritePartial f xs@(_:_) =
     let (xs',x) = (init xs,last xs)
@@ -47,6 +50,34 @@ combineRewrites l f g xs = do
 
 append :: a -> [a] -> [a]
 append x = (++[x])
+-}
+
+substSExpr :: M.Map Name SExpr -> SExpr -> Maybe SExpr
+substSExpr m (SPlaceholder n) = M.lookup n m
+substSExpr m (SExpr n xs) = SExpr n <$> mapM (substSExpr m) xs
+substSExpr _ x@(STok _) = Just x
+substSExpr _ _ = Nothing
+
+doRewrite :: TreeRewrite -> [SExpr] -> Maybe SExpr
+doRewrite (Subst ns x) xs | length ns == length xs =
+    let m = M.fromList . mapMaybe (\(n,x) -> (,x) <$> n) $ zip ns xs
+    in substSExpr m x
+doRewrite Single [x] = Just x
+doRewrite Empty [] = Just (Partial Single [])
+doRewrite Placeholder [STok (Tok (Escaped Ident) n)] = Just (SPlaceholder n)
+doRewrite RawSExpr [_,STok (Tok Ident n),SExpr _ xs,_] = Just (SExpr n xs)
+doRewrite (ListCons n) [x,SExpr _ xs] = Just (SExpr n (x:xs))
+doRewrite (ListNull n) [] = Just (SExpr n [])
+doRewrite (Combine l f g) xs = do
+    x <- doRewrite g (take l xs)
+    doRewrite f (x:drop l xs)
+doRewrite (RewritePartial f) xs | not (null xs) =
+    case last xs of
+        Partial g ys -> doRewrite g . (++ys) . (:[]) =<< doRewrite f (init xs)
+        _ -> Nothing
+doRewrite (ConstructPartial f) xs = Just (Partial (RewritePartial f) xs)
+doRewrite RawSExpr xs = error (show xs)
+doRewrite _ _ = Nothing
 
 {- LR removal -}
 
@@ -60,15 +91,15 @@ rmDirectLR a prods =
         else do
             a' <- fresh
             let lrec' =
-                    map (bimap constructPartial (append (Nonterminal a') . tail)) lrec
+                    map (bimap ConstructPartial ((++[Nonterminal a']) . tail)) lrec
             let nonrec' =
-                    map (bimap rewritePartial (append (Nonterminal a'))) nonrec
-            pure (M.fromList [(a,nonrec'),(a',append emptyRule lrec')])
+                    map (bimap RewritePartial (++[Nonterminal a'])) nonrec
+            pure (M.fromList [(a,nonrec'),(a',(++[emptyRule]) lrec')])
 
 reduceFirstNonterminal :: Grammar -> ProdRule -> ParserGenerator [ProdRule]
 reduceFirstNonterminal g (f,Nonterminal x:xs) =
     case M.lookup x g of
-        Just ps -> pure (map (\(g,ys) -> (combineRewrites (length ys) f g,ys++xs)) ps)
+        Just ps -> pure (map (\(g,ys) -> (Combine (length ys) f g,ys++xs)) ps)
         Nothing -> pure [(f,Nonterminal x:xs)]
 reduceFirstNonterminal _ x = pure [x]
 
@@ -102,23 +133,24 @@ alternatives v (f:gs) = do
     catchError f (\_ -> put v >> alternatives v gs)
 alternatives _ [] = throwError EmptyAlternative
 
-matchTerminal :: Symbol -> Tok -> Parser Tok
+matchTerminal :: Symbol -> Tok -> Maybe Tok
 matchTerminal (Exact t) t' | t == t' = pure t
 matchTerminal AnyEscaped t@(Tok (Escaped _) _) = pure t
 matchTerminal (Any k) t@(Tok k' _) | k == k' = pure t
-matchTerminal (Nonterminal x) _ = throwError (NotTerminal x)
-matchTerminal s t = throwError (NoMatch s t)
+matchTerminal s t = Nothing
 
 match :: Symbol -> Parser SExpr
 match (Nonterminal x) = parseNonterminal x
 match t = do
     t' <- next
-    STok <$> matchTerminal t t'
+    case matchTerminal t t' of
+        Just x -> pure (STok x)
+        Nothing -> throwError (NoMatch t t')
 
 parseRule :: ProdRule -> Parser SExpr
 parseRule (f,xs) = do
     toks <- mapM match xs
-    case f toks of
+    case doRewrite f toks of
         Just s -> pure s
         Nothing -> throwError (NoSExpr toks)
 

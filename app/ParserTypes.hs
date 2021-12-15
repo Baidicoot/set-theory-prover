@@ -79,26 +79,36 @@ data NotationBinding
     = BindNonterminal Name Name
     | ExactToken Tok
 
-type TreeRewrite = [SExpr] -> Maybe SExpr
-
 data SExpr
     = SExpr Name [SExpr]
     | STok Tok
+    | SPlaceholder Name
     | Partial TreeRewrite [SExpr]
 
 instance Show SExpr where
     show (STok t) = show t
     show (SExpr t xs) = "(" ++ show t ++ " " ++ unwords (fmap show xs) ++ ")"
+    show (SPlaceholder n) = "`" ++ show n ++ "`"
     show (Partial _ xs) = "(partial " ++ unwords (fmap show xs) ++ ")"
 
 type ProdRule
     = (TreeRewrite, [Symbol])
 
+data TreeRewrite
+    = Subst [Maybe Name] SExpr
+    | Single
+    | Empty
+    | Placeholder
+    | RawSExpr
+    | ListCons Name
+    | ListNull Name
+    | Combine Int TreeRewrite TreeRewrite
+    | RewritePartial TreeRewrite
+    | ConstructPartial TreeRewrite
+    deriving(Show)
+
 emptyRule :: ProdRule
-emptyRule = (const (Just (Partial f [])), [])
-    where
-        f [x] = Just x
-        f _ = Nothing
+emptyRule = (Empty, [])
 
 type Grammar = M.Map Name [ProdRule]
 

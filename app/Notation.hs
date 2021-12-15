@@ -13,21 +13,15 @@ acceptsSymbols (ExactToken t:tks) = Exact t:acceptsSymbols tks
 acceptsSymbols (BindNonterminal s _:tks) = Nonterminal s:acceptsSymbols tks
 acceptsSymbols [] = []
 
-bindSymbols :: [NotationBinding] -> [SExpr] -> Maybe (M.Map Name SExpr)
-bindSymbols (BindNonterminal s n:xs) (t:ss) = M.insert n t <$> bindSymbols xs ss
-bindSymbols (_:xs) (_:ss) = bindSymbols xs ss
-bindSymbols [] [] = pure M.empty
-bindSymbols _ _ = Nothing
+bindSymbols :: [NotationBinding] -> [Maybe Name]
+bindSymbols (BindNonterminal _ n:xs) = Just n:bindSymbols xs
+bindSymbols (_:xs) = Nothing:bindSymbols xs
+bindSymbols [] = []
 
 placeholderNonterminals :: [NotationBinding] -> S.Set Name
 placeholderNonterminals = foldr (\case
     BindNonterminal s n -> S.insert s
     _ -> id) S.empty
-
-substSExpr :: M.Map Name SExpr -> SExpr -> Maybe SExpr
-substSExpr m (SExpr n xs) = SExpr n <$> mapM (substSExpr m) xs
-substSExpr m (STok (Tok (Escaped Ident) n)) = M.lookup n m
-substSExpr _ x = Just x
 
 boundSymbols :: [NotationBinding] -> Either NotationError (S.Set Name)
 boundSymbols (BindNonterminal _ n:xs) = do
@@ -42,7 +36,7 @@ boundSymbols _ = Right mempty
 addPlaceholders :: S.Set Name -> Grammar -> Grammar
 addPlaceholders ps = M.mapWithKey (\n gs ->
     if n `S.member` ps then
-        (Just . head,[Any (Escaped Ident)]):gs
+        (Placeholder,[Any (Escaped Ident)]):gs
     else gs)
 
 usedSymbols :: SExpr -> S.Set Name
@@ -54,6 +48,6 @@ makeProdRule :: Name -> [NotationBinding] -> SExpr -> Either NotationError ProdR
 makeProdRule n ns s = do
     bound <- boundSymbols ns
     if S.null (usedSymbols s `S.difference` bound) then
-        Right (bindSymbols ns >=> flip substSExpr s,acceptsSymbols ns)
+        Right (Subst (bindSymbols ns) s,acceptsSymbols ns)
     else
         Left (UnknownPlaceholder (usedSymbols s `S.difference` bound))

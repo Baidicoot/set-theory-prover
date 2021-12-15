@@ -248,7 +248,6 @@ parseNotationProduct (grammar, env, p) ps n t = do
                 putNames ns
                 pure g
             (Left err,ns) -> throwExt (Parser (show err))
-    --liftIO (print (fmap (fmap snd) g))
     case parse g n t of
         Left err -> throwExt (Parser (show err))
         Right s -> pure s
