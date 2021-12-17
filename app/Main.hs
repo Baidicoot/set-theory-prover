@@ -10,6 +10,10 @@ import ParserTypes
 import Control.Exception
 import Control.Monad
 
+import qualified Data.ByteString as B
+
+import Data.Char(ord)
+
 initialNames :: [Name]
 initialNames = fmap (T.pack . ("v"++) . show) [1..]
 
@@ -36,6 +40,9 @@ runFile state filepath = L.run $ do
     L.registerHaskellFunction "die" (runActionExt "die" dieExt state)
     L.registerHaskellFunction "printGrammar" (runActionExt "printGrammar" printGrammarExt state)
     L.registerHaskellFunction "done" (runActionExt "done" doneExt state)
+    L.registerHaskellFunction "loadState" (runExt "loadState" loadStateExt state)
+    L.registerHaskellFunction "includeState" (runExt "includeState" loadStateExt state)
+    L.registerHaskellFunction "dumpState" (runOutputExt "dumpState" dumpStateExt state)
     catchScriptError $ L.dofile filepath
 
 main :: IO ()

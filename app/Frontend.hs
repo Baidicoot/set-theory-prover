@@ -1,6 +1,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
 module Frontend
     ( initialState
     , refineExt
@@ -13,8 +14,12 @@ module Frontend
     , printGrammarExt
     , doneExt
     , dieExt
+    , loadStateExt
+    , includeStateExt
+    , dumpStateExt
     , runExt
     , runActionExt
+    , runOutputExt
     , TracedError
     , ProverState)
     where
@@ -43,14 +48,27 @@ import Data.List (partition)
 
 import qualified Foreign.Lua as L
 
-newtype ConstObjs = ConstObjs (M.Map Name Monotype) deriving(Show)
-newtype DefObjs = DefObjs (M.Map Name (Monotype,DeBrujin)) deriving(Show)
-newtype ConstSorts = Sorts (S.Set Name) deriving(Show)
-newtype Axioms = Axioms (M.Map Name Term) deriving(Show)
+import Data.Binary (Binary,encode,decodeOrFail)
+
+import qualified Data.ByteString.Lazy as B
+
+newtype ConstObjs = ConstObjs (M.Map Name Monotype) deriving(Show,Binary,Semigroup)
+newtype DefObjs = DefObjs (M.Map Name (Monotype,DeBrujin)) deriving(Show,Binary,Semigroup)
+newtype ConstSorts = Sorts (S.Set Name) deriving(Show,Binary,Semigroup)
+newtype Axioms = Axioms (M.Map Name Term) deriving(Show,Binary,Semigroup)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
 -- names, reference grammar, global environment, current proof and local names for each goal (if applicable)
 type ProverState = (Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
+
+serializeProverState :: (Grammar,Env) -> Prover B.ByteString
+serializeProverState (g,e) = pure (encode (g,e))
+
+deserializeProverState :: B.ByteString -> Prover (Grammar,Env)
+deserializeProverState b = case decodeOrFail b of
+    Left (_,_,e) -> throwExt (Serializer e)
+    Right (b,_,(g,e)) | B.null b -> pure (g,e)
+    Right _ -> throwExt (Serializer "did not consume entire input")
 
 type Prover = ExceptT TracedError (StateT ([Name],Maybe Grammar) L.Lua)
 
@@ -88,6 +106,7 @@ data NormalError
     | Terminated
     | Parser String
     | Checker String
+    | Serializer String
     deriving(Show)
 
 throwExt :: NormalError -> Prover a
@@ -110,6 +129,14 @@ runActionExt n f state = do
     (s',ns') <- runProver (traceAs n "" $ f s) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
+        Left err -> L.raiseError (show err)
+
+runOutputExt :: L.Pushable o => String -> (ProverState -> Prover (ProverState, o)) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
+runOutputExt n f state = do
+    (s,ns) <- liftIO (readIORef state)
+    (o,ns') <- runProver (traceAs n "" $ f s) ns
+    case o of
+        Right (s',o) -> liftIO (writeIORef state (s',ns')) >> L.push o >> pure 1
         Left err -> L.raiseError (show err)
 
 runProver :: Prover i -> ([Name],Maybe Grammar) -> L.Lua (Either TracedError i, ([Name],Maybe Grammar))
@@ -307,3 +334,26 @@ doneExt s@(_, _, Just (prop, _, [])) =
 
 dieExt :: ProverState -> Prover ProverState
 dieExt _ = throwExt Terminated
+
+updatedState :: Grammar -> Env -> Prover ProverState
+updatedState g e = do
+    uncompileGrammar
+    pure (g,e,Nothing)
+
+includeStateExt :: ProverState -> B.ByteString -> Prover ProverState
+includeStateExt (g,e,Nothing) b = do
+    (g',e') <- deserializeProverState b
+    updatedState (g `M.union` g') (e <> e')
+includeStateExt _ _ = throwExt InProofMode
+
+loadStateExt :: ProverState -> B.ByteString -> Prover ProverState
+loadStateExt (_,_,Nothing) b = do
+    (g,e) <- deserializeProverState b
+    updatedState g e
+loadStateExt _ _ = throwExt InProofMode
+
+dumpStateExt :: ProverState -> Prover (ProverState,B.ByteString)
+dumpStateExt (g,e,Nothing) = do
+    b <- serializeProverState (g,e)
+    pure ((g,e,Nothing),b)
+dumpStateExt _ = throwExt InProofMode

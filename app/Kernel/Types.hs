@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Kernel.Types where
 
 import qualified Data.Text as T
@@ -7,6 +8,9 @@ import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Bifunctor
+
+import GHC.Generics (Generic)
+import Data.Binary (Binary)
 
 type Name = T.Text
 
@@ -75,7 +79,9 @@ data DeBrujin
     | DConst Name
     | DHole Name
     | DFree Name
-    deriving(Eq,Show)
+    deriving(Eq,Show,Generic)
+
+instance Binary DeBrujin
 
 data Term
     = Lam Name Term
@@ -86,18 +92,24 @@ data Term
     | Forall Name Monotype Term
     | Const Name
     | MetaVar Name
-    deriving(Eq,Show)
+    deriving(Eq,Show,Generic)
+
+instance Binary Term
 
 data Monotype
     = Arr Monotype Monotype
     | TyVar Name
     | ConstTy Name
     | Prop
-    deriving(Eq,Show)
+    deriving(Eq,Show,Generic)
+
+instance Binary Monotype
 
 data Polytype
     = Polytype (S.Set Name) Monotype
-    deriving(Eq,Show)
+    deriving(Eq,Show,Generic)
+
+instance Binary Polytype
 
 data Proof
     = ModPon Proof Proof
@@ -107,4 +119,6 @@ data Proof
     | Axiom Name
     | Param Name
     | Hole
-    deriving(Show)
+    deriving(Show,Generic)
+
+instance Binary Proof

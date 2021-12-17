@@ -40,8 +40,7 @@ executable set-theory-prover
         Elab,
         Frontend,
         ParserInit,
-        Notation,
-        TestLR
+        Notation
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -51,6 +50,8 @@ executable set-theory-prover
         containers ^>=0.6.5.1,
         text ^>=1.2.4.1,
         vector ^>=0.12.3.1,
-        hslua ^>=1.3.0.2
+        hslua ^>=1.3.0.2,
+        binary ^>=0.8.9.0,
+        bytestring ^>=0.10.12.0
     hs-source-dirs:   app
     default-language: Haskell2010

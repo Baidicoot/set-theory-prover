@@ -1,3 +1,4 @@
 /dist-newstyle
 /diagrams/*
 !/diagrams/*.tex
+*.atp

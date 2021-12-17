@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 module ParserTypes where
 
 import qualified Data.Text as T
@@ -12,6 +13,9 @@ import Control.Monad.Except
 import Control.Monad.Reader
 
 import Data.List (intercalate)
+
+import GHC.Generics (Generic)
+import Data.Binary (Binary)
 
 data NameLevel
     = Sort
@@ -45,7 +49,9 @@ type Name = T.Text
 
 data Tok
     = Tok TokKind T.Text
-    deriving(Eq,Ord)
+    deriving(Eq,Ord,Generic)
+
+instance Binary Tok
 
 instance Show Tok where
     show (Tok k t) = "<" ++ show t ++ "," ++ show k ++ ">"
@@ -55,14 +61,18 @@ data TokKind
     | Bracket
     | Symbol
     | Escaped TokKind
-    deriving(Eq,Ord,Show)
+    deriving(Eq,Ord,Show,Generic)
+
+instance Binary TokKind
 
 data Symbol
     = Any TokKind
     | AnyEscaped
     | Exact Tok
     | Nonterminal Name
-    deriving(Eq,Ord)
+    deriving(Eq,Ord,Generic)
+
+instance Binary Symbol
 
 instance Show Symbol where
     show (Any k) = "<" ++ show k ++ ">"
@@ -84,6 +94,9 @@ data SExpr
     | STok Tok
     | SPlaceholder Name
     | Partial TreeRewrite [SExpr]
+    deriving(Generic)
+
+instance Binary SExpr
 
 instance Show SExpr where
     show (STok t) = show t
@@ -105,7 +118,9 @@ data TreeRewrite
     | Combine Int TreeRewrite TreeRewrite
     | RewritePartial TreeRewrite
     | ConstructPartial TreeRewrite
-    deriving(Show)
+    deriving(Show,Generic)
+
+instance Binary TreeRewrite
 
 emptyRule :: ProdRule
 emptyRule = (Empty, [])
