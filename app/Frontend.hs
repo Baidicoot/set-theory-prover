@@ -17,6 +17,7 @@ module Frontend
     , loadStateExt
     , includeStateExt
     , dumpStateExt
+    , defineExt
     , runExt
     , runActionExt
     , runOutputExt
@@ -105,7 +106,7 @@ data NormalError
     | OpenGoals
     | Terminated
     | Parser String
-    | Checker String
+    | Checker String String
     | Serializer String
     deriving(Show)
 
@@ -165,6 +166,10 @@ insertConst :: Name -> Monotype -> ProverState -> ProverState
 insertConst n t (grammar, (s,ConstObjs o,d,a), goal) =
     (grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
 
+insertDef :: Name -> Monotype -> DeBrujin -> ProverState -> ProverState
+insertDef n m t (grammar, (s,o,DefObjs d,a), goal) =
+    (grammar, (s,o,DefObjs (M.insert n (m,t) d),a), goal)
+
 envToCtx :: Env -> Ctx
 envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
     let objctx = fmap (Polytype mempty) (objs `M.union` fmap fst defobjs)
@@ -177,14 +182,24 @@ checkProof (_, env, _) prop prf = do
     names <- getNames
     case runProofCheck names (envToCtx env) prop prf of
         (Right (_, holes), names') -> putNames names' >> pure holes
-        (Left err, _) -> throwExt (Checker (show err))
+        (Left err, _) -> throwExt (Checker (show err) (show prf))
 
 checkProp :: ProverState -> Monotype -> Term -> Prover Term
 checkProp (_, env, _) sort prop = do
     names <- getNames
     case runPropCheck names (envToCtx env) sort prop of
         (Right t, names') -> putNames names' >> pure t
-        (Left err, _) -> throwExt (Checker (show err))
+        (Left err, _) -> throwExt (Checker (show err) (show prop))
+
+inferProp :: ProverState -> Term -> Prover (Term,Monotype)
+inferProp (_, env, _) prop = do
+    names <- getNames
+    case runPropInfer names (envToCtx env) prop of
+        (Right t, names') -> putNames names' >> pure t
+        (Left err, _) -> throwExt (Checker (show err) (show prop))
+
+evalProp :: ProverState -> Term -> Prover DeBrujin
+evalProp (_, env, _) prop = pure (evalObj (envToCtx env) prop)
 
 refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
 refine (_, _, Nothing) _ = throwExt NotInProofMode
@@ -293,6 +308,15 @@ newConstExt s (n, t) = do
         g <- compileGrammar s
         parseSort s g (envCtx s) t
     pure (insertConst n m s')
+
+defineExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
+defineExt s (n, d) = do
+    (df, s') <- do
+        g <- compileGrammar s
+        parseProp s g (envCtx s) d
+    (df',m) <- inferProp s' df
+    db <- evalProp s' df
+    pure (insertDef n m db s')
 
 assertExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 assertExt s (n, t) = do

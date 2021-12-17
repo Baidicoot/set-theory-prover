@@ -43,6 +43,7 @@ runFile state filepath = L.run $ do
     L.registerHaskellFunction "loadState" (runExt "loadState" loadStateExt state)
     L.registerHaskellFunction "includeState" (runExt "includeState" loadStateExt state)
     L.registerHaskellFunction "dumpState" (runOutputExt "dumpState" dumpStateExt state)
+    L.registerHaskellFunction "define" (curry $ runExt "define" defineExt state)
     catchScriptError $ L.dofile filepath
 
 main :: IO ()

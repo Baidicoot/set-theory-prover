@@ -25,7 +25,7 @@ type Ctx = (ThmCtx,ObjCtx,DefCtx)
 names :: [Name]
 names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
 
-data ProofError
+data ProofErrorType
     = InfiniteType Name Monotype
     | MonotypeUnificationFail Monotype Monotype
     | PolytypeUnificationFail Polytype Polytype
@@ -42,7 +42,15 @@ data ProofError
     | CantInferHigherOrder Name Proof
     deriving(Show)
 
+data ProofError = ProofError ProofErrorType [String] deriving(Show)
+
 type Infer = ExceptT ProofError (State ([Name], MetaVarTypes))
+
+throwErr :: ProofErrorType -> Infer a
+throwErr = throwError . flip ProofError []
+
+traceErr :: String -> Infer a -> Infer a
+traceErr n f = f `catchError` (\(ProofError e t) -> throwError (ProofError e (n:t)))
 
 fresh :: Infer Name
 fresh = do

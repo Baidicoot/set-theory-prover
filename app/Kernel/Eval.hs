@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-module Kernel.Eval (simpObj, unifyObj, SubstDeBrujin(..)) where
+module Kernel.Eval (simpObj, unifyObj, evalObj, SubstDeBrujin(..)) where
 
 import Kernel.Types
 import Kernel.Subst
@@ -113,7 +113,7 @@ unifyD ctx (DImp a b) (DImp c d) = do
     pure (f<+g, tf<+tg)
 unifyD ctx a b =
     case (reduceWhnfDeBrujin ctx a,reduceWhnfDeBrujin ctx b) of
-        (Nothing,Nothing) -> throwError (ObjectUnificationFail a b)
+        (Nothing,Nothing) -> throwErr (ObjectUnificationFail a b)
         (Just a,Nothing) -> unifyD ctx a b
         (Nothing,Just b) -> unifyD ctx a b
         (Just a, Just b) -> unifyD ctx a b
@@ -143,7 +143,7 @@ deBrujinToTerm ns (DAll t a) = do
     a' <- deBrujinToTerm (x:ns) a
     pure (Forall x t a')
 deBrujinToTerm ns (DVar n) | length ns > n = pure (Var $ ns !! n)
-deBrujinToTerm ns (DVar n) = throwError (UnscopedDeBrujin n)
+deBrujinToTerm ns (DVar n) = throwErr (UnscopedDeBrujin n)
 deBrujinToTerm ns (DApp e0 e1) = do
     e0' <- deBrujinToTerm ns e0
     e1' <- deBrujinToTerm ns e1
@@ -189,6 +189,9 @@ so it needs to be done manually:
 
 instance SubstDeBrujin Proof where
     substObj = mapC . (substObj :: DeBrujinSubst -> Term -> Infer Term)
+
+evalObj :: DefCtx -> Term -> DeBrujin
+evalObj ctx t = let d = termToDeBrujin M.empty t in whnfDeBrujin ctx d
 
 simpObj :: DefCtx -> Term -> Infer Term
 simpObj ctx t =

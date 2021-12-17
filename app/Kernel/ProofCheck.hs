@@ -63,84 +63,88 @@ instThm t = do
 
 -- add things for checking props inside this
 checkThm :: Ctx -> Term -> Proof -> Infer (Term, [Term], FullSubst)
-checkThm ctx e0 (IntroThm n t p) = do
-    (s0,_) <- inferObj (snd3 ctx) t
-    e1 <- MetaVar <$> fresh
-    e2 <- MetaVar <$> fresh
-    f0 <- unifyObj (trd3 ctx) (subst s0 e0) (Imp e1 e2)
-    ctx <- updateCtx f0 ctx
-    e1' <- substFull f0 e1
-    e2' <- substFull f0 e2
-    (_,h,f1) <- checkThm (addThm n e1' ctx) e2' p
-    ctx <- updateCtx f1 ctx
-    e1'' <- substFull f1 e1'
-    e2'' <- substFull f1 e2'
-    f2 <- unifyObj (trd3 ctx) e1'' t
-    e1''' <- substFull f2 e1''
-    e2''' <- substFull f2 e2''
-    h' <- mapM (substFull f2) h
-    pure (Imp e1''' e2''',h',composeFull f2 (composeFull f1 f0))
-checkThm ctx e0 (IntroObj n t p) = do
-    t0 <- TyVar <$> fresh
-    e1 <- MetaVar <$> fresh
-    x' <- fresh
-    f0 <- unifyObj (trd3 ctx) e0 (Forall x' t0 e1)
-    ctx <- updateCtx f0 ctx
-    e1' <- substFull f0 e1
-    let t0' = subst (snd f0) t0
-    (_,h,f1) <- checkThm (addObj n (Polytype S.empty t0') ctx) e1' p
-    e1'' <- substFull f1 e1'
-    ctx <- updateCtx f1 ctx
-    let t0'' = subst (snd f1) t0'
-    f2 <- (mempty,) <$> unifyTyp t0'' t
-    let t0''' = subst (snd f2) t0''
-    h' <- mapM (substFull f2) h
-    e1''' <- substFull f2 e1''
-    pure (Forall x' t0''' e1'',h',composeFull f2 (composeFull f1 f0))
-checkThm ctx e0 p = do
-    (e1,h,f0) <- inferThm ctx p
-    e0' <- substFull f0 e0
-    f1 <- unifyObj (trd3 ctx) e0' e1
-    e1' <- substFull f1 e1
-    (e1',,composeFull f1 f0) <$> mapM (substFull f1) h
+checkThm ctx t p = traceErr ("checking " ++ show p ++ " proves " ++ show t) (checkThm' ctx t p)
+    where
+    checkThm' ctx e0 (IntroThm n t p) = do
+        (s0,_) <- inferObj (snd3 ctx) t
+        e1 <- MetaVar <$> fresh
+        e2 <- MetaVar <$> fresh
+        f0 <- unifyObj (trd3 ctx) (subst s0 e0) (Imp e1 e2)
+        ctx <- updateCtx f0 ctx
+        e1' <- substFull f0 e1
+        e2' <- substFull f0 e2
+        (_,h,f1) <- checkThm (addThm n e1' ctx) e2' p
+        ctx <- updateCtx f1 ctx
+        e1'' <- substFull f1 e1'
+        e2'' <- substFull f1 e2'
+        f2 <- unifyObj (trd3 ctx) e1'' t
+        e1''' <- substFull f2 e1''
+        e2''' <- substFull f2 e2''
+        h' <- mapM (substFull f2) h
+        pure (Imp e1''' e2''',h',composeFull f2 (composeFull f1 f0))
+    checkThm' ctx e0 (IntroObj n t p) = do
+        t0 <- TyVar <$> fresh
+        e1 <- MetaVar <$> fresh
+        x' <- fresh
+        f0 <- unifyObj (trd3 ctx) e0 (Forall x' t0 e1)
+        ctx <- updateCtx f0 ctx
+        e1' <- substFull f0 e1
+        let t0' = subst (snd f0) t0
+        (_,h,f1) <- checkThm (addObj n (Polytype S.empty t0') ctx) e1' p
+        e1'' <- substFull f1 e1'
+        ctx <- updateCtx f1 ctx
+        let t0'' = subst (snd f1) t0'
+        f2 <- (mempty,) <$> unifyTyp t0'' t
+        let t0''' = subst (snd f2) t0''
+        h' <- mapM (substFull f2) h
+        e1''' <- substFull f2 e1''
+        pure (Forall x' t0''' e1'',h',composeFull f2 (composeFull f1 f0))
+    checkThm' ctx e0 p = do
+        (e1,h,f0) <- inferThm ctx p
+        e0' <- substFull f0 e0
+        f1 <- unifyObj (trd3 ctx) e0' e1
+        e1' <- substFull f1 e1
+        (e1',,composeFull f1 f0) <$> mapM (substFull f1) h
 
 inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
-inferThm ctx (Axiom n) = case M.lookup n (fst3 ctx) of
-    Just t -> (,[],mempty) <$> instThm t
-    Nothing -> throwError (UnknownAxiom n)
-inferThm ctx (Param n) = case M.lookup n (fst3 ctx) of
-    Just t -> (,[],mempty) <$> instThm t
-    Nothing -> throwError (UnknownAxiom n)
-inferThm ctx (ModPon p0 p1) = do
-    (e0,h0,f0) <- inferThm ctx p0
-    p1' <- substFull f0 p1
-    ctx <- updateCtx f0 ctx
-    (e1,h1,f1) <- inferThm ctx p1'
-    h0' <- mapM (substFull f1) h0
-    ctx <- updateCtx f1 ctx
-    e' <- MetaVar <$> fresh
-    e0' <- substFull f1 e0
-    f2 <- unifyObj (trd3 ctx) e0' (Imp e1 e')
-    e2 <- substFull f2 e'
-    h0'' <- mapM (substFull f2) h0'
-    h1' <- mapM (substFull f2) h1
-    pure (e2,h0''++h1',composeFull f2 (composeFull f1 f0))
-inferThm ctx (IntroThm n e0 p) = do
-    (s0,_) <- inferObj (snd3 ctx) e0
-    (e1,h,f1) <- inferThm (addThm n e0 ctx) p
-    e0' <- substFull f1 e0
-    pure (Imp e0' e1,fmap (subst s0) h,f1)
-inferThm ctx (UniElim p0 e0) = do
-    (s0,t0) <- inferObj (snd3 ctx) e0
-    (e1,h,f1) <- inferThm ctx p0
-    ctx <- updateCtx f1 ctx
-    e1' <- simpObj (trd3 ctx) e1
-    case e1' of
-        Forall x t e -> do
-            _ <- unifyTyp t t0
-            e0' <- substFull f1 e0
-            pure (App (Lam x e) e0',h,f1)
-        _ -> throwError (NotForall p0 e0)
-{- maybe replace this with something that attempts to? -}
-inferThm ctx (IntroObj n t p) = throwError (CantInferHigherOrder n p)
-inferThm ctx Hole = (\t -> (t,[t],(M.empty,M.empty))) . MetaVar <$> fresh
+inferThm ctx p = traceErr ("checking proof " ++ show p) (inferThm' ctx p)
+    where
+    inferThm' ctx (Axiom n) = case M.lookup n (fst3 ctx) of
+        Just t -> (,[],mempty) <$> instThm t
+        Nothing -> throwErr (UnknownAxiom n)
+    inferThm' ctx (Param n) = case M.lookup n (fst3 ctx) of
+        Just t -> (,[],mempty) <$> instThm t
+        Nothing -> throwErr (UnknownAxiom n)
+    inferThm' ctx (ModPon p0 p1) = do
+        (e0,h0,f0) <- inferThm ctx p0
+        p1' <- substFull f0 p1
+        ctx <- updateCtx f0 ctx
+        (e1,h1,f1) <- inferThm ctx p1'
+        h0' <- mapM (substFull f1) h0
+        ctx <- updateCtx f1 ctx
+        e' <- MetaVar <$> fresh
+        e0' <- substFull f1 e0
+        f2 <- unifyObj (trd3 ctx) e0' (Imp e1 e')
+        e2 <- substFull f2 e'
+        h0'' <- mapM (substFull f2) h0'
+        h1' <- mapM (substFull f2) h1
+        pure (e2,h0''++h1',composeFull f2 (composeFull f1 f0))
+    inferThm' ctx (IntroThm n e0 p) = do
+        (s0,_) <- inferObj (snd3 ctx) e0
+        (e1,h,f1) <- inferThm (addThm n e0 ctx) p
+        e0' <- substFull f1 e0
+        pure (Imp e0' e1,fmap (subst s0) h,f1)
+    inferThm' ctx (UniElim p0 e0) = do
+        (s0,t0) <- inferObj (snd3 ctx) e0
+        (e1,h,f1) <- inferThm ctx p0
+        ctx <- updateCtx f1 ctx
+        e1' <- simpObj (trd3 ctx) e1
+        case e1' of
+            Forall x t e -> do
+                _ <- unifyTyp t t0
+                e0' <- substFull f1 e0
+                pure (App (Lam x e) e0',h,f1)
+            _ -> throwErr (NotForall p0 e0)
+    {- maybe replace this with something that attempts to? -}
+    inferThm' ctx (IntroObj n t p) = throwErr (CantInferHigherOrder n p)
+    inferThm' ctx Hole = (\t -> (t,[t],(M.empty,M.empty))) . MetaVar <$> fresh

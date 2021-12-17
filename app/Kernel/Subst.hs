@@ -60,7 +60,7 @@ instance Container Term Monotype where
     mapC f (Lam n e) = fmap (Lam n) (mapC f e)
     mapC f (Let n e0 e1) = liftM2 (Let n) (mapC f e0) (mapC f e1)
     mapC f (App e0 e1) = liftM2 App (mapC f e0) (mapC f e1)
-    mapC f (Imp e0 e1) = liftM2 App (mapC f e0) (mapC f e1)
+    mapC f (Imp e0 e1) = liftM2 Imp (mapC f e0) (mapC f e1)
     mapC f (Forall n t e) = liftM2 (Forall n) (f t) (mapC f e)
     mapC _ x = pure x
 
