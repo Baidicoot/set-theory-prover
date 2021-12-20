@@ -18,7 +18,7 @@ type MetaVarTypes = M.Map Name Monotype
 type TypeCtx = M.Map Name Polytype
 type ObjCtx = M.Map Name Polytype
 type ThmCtx = M.Map Name Term
-type DefCtx = M.Map Name DeBrujin
+type DefCtx = M.Map Name Term
 
 type Ctx = (ThmCtx,ObjCtx,DefCtx)
 
@@ -30,14 +30,13 @@ data ProofErrorType
     | MonotypeUnificationFail Monotype Monotype
     | PolytypeUnificationFail Polytype Polytype
     | NotInContext Name
-    | ObjectUnificationFail DeBrujin DeBrujin
-    | HigherOrderUnification DeBrujin DeBrujin
-    | NonFunctionEval DeBrujin
-    | NoEvalRule DeBrujin
+    | ObjectUnificationFail Term Term
+    | HigherOrderUnification Term Term
+    | NonFunctionEval Term
+    | NoEvalRule Term
     | DoesNotMatch Proof Term
     | NotForall Proof Term
     | UnknownAxiom Name
-    | UnknownConst Name
     | UnscopedDeBrujin Int
     | CantInferHigherOrder Name Proof
     deriving(Show)
@@ -78,28 +77,14 @@ fillHole (IntroObj n t a) p = IntroObj n t <$> fillHole a p
 fillHole (UniElim a t) p = flip UniElim t <$> fillHole a p
 fillHole _ _ = Nothing
 
-data DeBrujin
-    = DLam DeBrujin
-    | DApp DeBrujin DeBrujin
-    | DVar Int
-    | DAll Monotype DeBrujin
-    | DImp DeBrujin DeBrujin
-    | DConst Name
-    | DHole Name
-    | DFree Name
-    deriving(Eq,Show,Generic)
-
-instance Binary DeBrujin
-
 data Term
     = Lam Name Term
     | Let Name Term Term
     | App Term Term
-    | Var Name
     | Imp Term Term
     | Forall Name Monotype Term
-    | Const Name
     | MetaVar Name
+    | Var Name
     deriving(Eq,Show,Generic)
 
 instance Binary Term

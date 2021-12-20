@@ -91,11 +91,12 @@ elabTerm (SExpr "forall" [x,y,z]) = do
     (n', z') <- freshen n Local Obj (elabTerm z)
     pure (Forall n' y' z')
 elabTerm (SExpr "imp" [x,y]) = liftM2 Imp (elabTerm x) (elabTerm y)
+elabTerm (SExpr "hole" []) = MetaVar <$> fresh
 elabTerm x = do
     (n,o) <- elabBound x Obj
     case o of
       Local -> pure (Var n)
-      Global -> pure (Const n)
+      Global -> pure (Var n)
       Implicit -> pure (MetaVar n)
 
 elabProof :: SExpr -> Elaborator Proof

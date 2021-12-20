@@ -13,7 +13,6 @@ notation("[PROOF `( [PROOF x] `) ]", "`x")
 notation("[PROOF `_ ]", "[hole]")
 notation("[PROOF introThm [IDENT x] `: [PROP y] `, [PROOF z] ]", "[introThm `x `y `z]")
 notation("[PROOF introObj [IDENT x] `: [SORT y] `, [PROOF z] ]", "[introObj `x `y `z]")
-notation("[PROOF [PROOF x] `{ [PROP y] `} ]", "[uniElim `x `y]")
 notation("[PROOF [PROOF x] [PROOF y] ]", "[modPon `x `y]")
 
 const("True","Prop")
@@ -43,4 +42,6 @@ notation("[PROP [PROP x] `<=> [PROP y] ]","(iff `x) `y")
 
 define("id","λ x. x")
 
-beginProof("True <=> True")
+beginProof("∀x:Prop, ∀y:Prop, (x <=> y) <=> (y <=> x)")
+    refine("introObj x:Prop, _")
+    refine("introObj y:Prop, _")

@@ -19,7 +19,7 @@ import Kernel.Types
 
 type Subst = M.Map Name
 
-type DeBrujinSubst = Subst DeBrujin
+type TermSubst = Subst Term
 type TypeSubst = Subst Monotype
 
 {- LEFT-BIASED COMPOSITION -}
@@ -49,6 +49,12 @@ instance (Foldable t, Functor t, Substitutable a b) => Substitutable a (t b) whe
 class Container a b where
     mapC :: Monad m => (b -> m b) -> a -> m a
 
+instance Traversable f => Container (f a) a where
+    mapC = traverse
+
+instance Container x x where
+    mapC = id
+
 instance Container Proof Term where
     mapC f (ModPon a b) = liftM2 ModPon (mapC f a) (mapC f b)
     mapC f (UniElim p t) = liftM2 UniElim (mapC f p) (f t)
@@ -64,13 +70,6 @@ instance Container Term Monotype where
     mapC f (Forall n t e) = liftM2 (Forall n) (f t) (mapC f e)
     mapC _ x = pure x
 
-instance Container DeBrujin Monotype where
-    mapC f (DLam d) = mapC f d
-    mapC f (DApp d0 d1) = liftM2 DApp (mapC f d0) (mapC f d1)
-    mapC f (DImp d0 d1) = liftM2 DImp (mapC f d0) (mapC f d1)
-    mapC f (DAll t d) = liftM2 DAll (f t) (mapC f d)
-    mapC _ x = pure x
-
 instance Substitutable Monotype Monotype where
     subst s (Arr a b) = Arr (subst s a) (subst s b)
     subst s (TyVar n) = case M.lookup n s of
@@ -80,6 +79,25 @@ instance Substitutable Monotype Monotype where
     
     free (Arr a b) = free @Monotype a `S.union` free @Monotype b
     free (TyVar n) = S.singleton n
+    free _ = S.empty
+
+instance Substitutable Term Term where
+    subst s (Lam n t) = Lam n (subst s t)
+    subst s (Let n t0 t1) = Let n (subst s t0) (subst s t1)
+    subst s (App t0 t1) = App (subst s t0) (subst s t1)
+    subst s (Imp t0 t1) = Imp (subst s t0) (subst s t1)
+    subst s (Forall n m t) = Forall n m (subst s t)
+    subst s (Var n) = case M.lookup n s of
+        Just t -> t
+        Nothing -> Var n
+    subst s x = x
+
+    free (Var n) = S.singleton n
+    free (Lam n e) = S.delete n (free @Term e)
+    free (Let n e0 e1) = free @Term e0 `S.union` S.delete n (free @Term e1)
+    free (App e0 e1) = free @Term e0 `S.union` free @Term e1
+    free (Imp e0 e1) = free @Term e0 `S.union` free @Term e1
+    free (Forall n _ e) = S.delete n (free @Term e)
     free _ = S.empty
 
 {-
@@ -105,12 +123,82 @@ instance Substitutable Monotype Proof where
         (mapC :: (Monotype -> Writer (S.Set Name) Monotype) -> Proof -> Writer (S.Set Name) Proof)
         (\c -> tell (free @Monotype c) >> pure c)
 
-instance Substitutable Monotype DeBrujin where
-    subst s = runIdentity .
-        (mapC :: (Monotype -> Identity Monotype) -> DeBrujin -> Identity DeBrujin) (Identity . subst s)
-    free = execWriter .
-        (mapC :: (Monotype -> Writer (S.Set Name) Monotype) -> DeBrujin -> Writer (S.Set Name) DeBrujin)
-        (\c -> tell (free @Monotype c) >> pure c)
+class Renamable a where
+    rename :: a -> Infer a
+    replace :: Name -> Name -> a -> a
+
+instance Renamable Term where
+    rename (Lam n t) = do
+        x <- fresh
+        Lam x . replace n x <$> rename t
+    rename (Let n t0 t1) = do
+        x <- fresh
+        liftM2 (Let x) (rename t0) (replace n x <$> rename t1)
+    rename (App t0 t1) = liftM2 App (rename t0) (rename t1)
+    rename (Imp t0 t1) = liftM2 Imp (rename t0) (rename t1)
+    rename (Forall n m t) = do
+        x <- fresh
+        Forall x m . replace n x <$> rename t
+    rename x = pure x
+
+    replace n x (Lam m t) = Lam m (replace n x t)
+    replace n x (Let m t0 t1) = Let m (replace n x t0) (replace n x t1)
+    replace n x (App t0 t1) = App (replace n x t0) (replace n x t1)
+    replace n x (Imp t0 t1) = Imp (replace n x t0) (replace n x t1)
+    replace n x (Forall m s t) = Forall m s (replace n x t)
+    replace n x (Var m) | m == n = Var x
+    replace _ _ x = x
+
+data SubstRenaming a b = SubstRenaming
+    { substRenaming :: Subst a -> b -> Infer b
+    , locations :: a -> S.Set Name
+    }
+
+{- LEFT-BIASED COMPOSITION -}
+composeRenamingSubst :: SubstRenaming a a -> Subst a -> Subst a -> Infer (Subst a)
+composeRenamingSubst (SubstRenaming subst _) f g = M.union f <$> traverse (subst f) g
+
+substVarsTerm :: SubstRenaming Term Term
+substVarsTerm = SubstRenaming subst locs
+    where
+    subst s (Lam n t) = Lam n <$> subst s t
+    subst s (Let n t0 t1) = liftM2 (Let n) (subst s t0) (subst s t1)
+    subst s (App t0 t1) = liftM2 App (subst s t0) (subst s t1)
+    subst s (Imp t0 t1) = liftM2 Imp (subst s t0) (subst s t1)
+    subst s (Forall n m t) = Forall n m <$> subst s t
+    subst s (Var n) = case M.lookup n s of
+        Just t -> rename t
+        Nothing -> pure (Var n)
+    subst s x = pure x
+
+    locs (Lam n t) = S.delete n (locs t)
+    locs (Let n t0 t1) = S.delete n (locs t0 `S.union` locs t1)
+    locs (App t0 t1) = locs t0 `S.union` locs t1
+    locs (Imp t0 t1) = locs t0 `S.union` locs t1
+    locs (Forall n _ t) = S.delete n (locs t)
+    locs (Var n) = S.singleton n
+    locs _ = S.empty
+
+substMetaVarsTerm :: SubstRenaming Term Term
+substMetaVarsTerm = SubstRenaming subst locs
+    where
+    subst s (Lam n t) = Lam n <$> subst s t
+    subst s (Let n t0 t1) = liftM2 (Let n) (subst s t0) (subst s t1)
+    subst s (App t0 t1) = liftM2 App (subst s t0) (subst s t1)
+    subst s (Imp t0 t1) = liftM2 Imp (subst s t0) (subst s t1)
+    subst s (Forall n m t) = Forall n m <$> subst s t
+    subst s (MetaVar n) = case M.lookup n s of
+        Just t -> rename t
+        Nothing -> pure (Var n)
+    subst s x = pure x
+
+    locs (Lam _ t) = locs t
+    locs (Let _ t0 t1) = locs t0 `S.union` locs t1
+    locs (App t0 t1) = locs t0 `S.union` locs t1
+    locs (Imp t0 t1) = locs t0 `S.union` locs t1
+    locs (Forall _ _ t) = locs t
+    locs (MetaVar n) = S.singleton n
+    locs _ = S.empty
 
 {-
 instance (Container a c,Substitutable b c) => Substitutable b a where

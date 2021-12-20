@@ -124,12 +124,6 @@ inferObj ctx t = traceErr ("inferring " ++ show t) (inferObj' ctx t)
                 t <- instantiate s
                 pure (M.empty, t)
             Nothing -> throwErr (NotInContext x)
-    inferObj' ctx (Const x) =
-        case M.lookup x ctx of
-            Just s -> do
-                t <- instantiate s
-                pure (M.empty, t)
-            Nothing -> throwErr (UnknownConst x)
     inferObj' ctx (MetaVar x) = do
         (_,ms) <- get
         case M.lookup x ms of

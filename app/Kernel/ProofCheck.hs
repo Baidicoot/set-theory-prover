@@ -24,14 +24,15 @@ Check.hs - PROOF CHECKING
 This actually checks the proofs
 -}
 
-type FullSubst = (DeBrujinSubst, TypeSubst)
+type FullSubst = (TermSubst, TypeSubst)
 
-substFull :: (SubstDeBrujin t,Substitutable Monotype t) => FullSubst -> t -> Infer t
-substFull (d,s) t = substObj d (subst s t)
+substFull :: (Container t Term,Substitutable Monotype t) => FullSubst -> t -> Infer t
+substFull (d,s) t = mapC (substRenaming substMetaVarsTerm d) (subst s t)
 
 {- left-biased composition -}
-composeFull :: FullSubst -> FullSubst -> FullSubst
-composeFull (d0,s0) (d1,s1) = (composeSubst (subst s1 d0) (subst s0 d1),composeSubst s0 s1)
+composeFull :: FullSubst -> FullSubst -> Infer FullSubst
+composeFull (d0,s0) (d1,s1) = (,composeSubst s0 s1) <$>
+    composeRenamingSubst substMetaVarsTerm (subst s1 d0) (subst s0 d1)
 
 fst3 :: (a,b,c) -> a
 fst3 (a,_,_) = a
@@ -51,7 +52,7 @@ addObj n t (a,b,c) = (a,M.insert n t b,c)
 updateCtx :: FullSubst -> Ctx -> Infer Ctx
 updateCtx f (a,b,c) = do
     a' <- substFull f a
-    b' <- substFull f b
+    let b' = subst (snd f) b
     c' <- substFull f c
     pure (a',b',c')
 
@@ -69,7 +70,7 @@ checkThm ctx t p = traceErr ("checking " ++ show p ++ " proves " ++ show t) (che
         (s0,_) <- inferObj (snd3 ctx) t
         e1 <- MetaVar <$> fresh
         e2 <- MetaVar <$> fresh
-        f0 <- unifyObj (trd3 ctx) (subst s0 e0) (Imp e1 e2)
+        f0 <- unifyTerm (trd3 ctx) (subst s0 e0) (Imp e1 e2)
         ctx <- updateCtx f0 ctx
         e1' <- substFull f0 e1
         e2' <- substFull f0 e2
@@ -77,16 +78,17 @@ checkThm ctx t p = traceErr ("checking " ++ show p ++ " proves " ++ show t) (che
         ctx <- updateCtx f1 ctx
         e1'' <- substFull f1 e1'
         e2'' <- substFull f1 e2'
-        f2 <- unifyObj (trd3 ctx) e1'' t
+        f2 <- unifyTerm (trd3 ctx) e1'' t
         e1''' <- substFull f2 e1''
         e2''' <- substFull f2 e2''
         h' <- mapM (substFull f2) h
-        pure (Imp e1''' e2''',h',composeFull f2 (composeFull f1 f0))
+        f <- composeFull f2 =<< composeFull f1 f0
+        pure (Imp e1''' e2''',h',f)
     checkThm' ctx e0 (IntroObj n t p) = do
         t0 <- TyVar <$> fresh
         e1 <- MetaVar <$> fresh
         x' <- fresh
-        f0 <- unifyObj (trd3 ctx) e0 (Forall x' t0 e1)
+        f0 <- unifyTerm (trd3 ctx) e0 (Forall x' t0 e1)
         ctx <- updateCtx f0 ctx
         e1' <- substFull f0 e1
         let t0' = subst (snd f0) t0
@@ -98,13 +100,15 @@ checkThm ctx t p = traceErr ("checking " ++ show p ++ " proves " ++ show t) (che
         let t0''' = subst (snd f2) t0''
         h' <- mapM (substFull f2) h
         e1''' <- substFull f2 e1''
-        pure (Forall x' t0''' e1'',h',composeFull f2 (composeFull f1 f0))
+        f <- composeFull f2 =<< composeFull f1 f0
+        pure (Forall x' t0''' e1'',h',f)
     checkThm' ctx e0 p = do
         (e1,h,f0) <- inferThm ctx p
         e0' <- substFull f0 e0
-        f1 <- unifyObj (trd3 ctx) e0' e1
+        f1 <- unifyTerm (trd3 ctx) e0' e1
         e1' <- substFull f1 e1
-        (e1',,composeFull f1 f0) <$> mapM (substFull f1) h
+        f <- composeFull f1 f0
+        (e1',,f) <$> mapM (substFull f1) h
 
 inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
 inferThm ctx p = traceErr ("checking proof " ++ show p) (inferThm' ctx p)
@@ -124,11 +128,12 @@ inferThm ctx p = traceErr ("checking proof " ++ show p) (inferThm' ctx p)
         ctx <- updateCtx f1 ctx
         e' <- MetaVar <$> fresh
         e0' <- substFull f1 e0
-        f2 <- unifyObj (trd3 ctx) e0' (Imp e1 e')
+        f2 <- unifyTerm (trd3 ctx) e0' (Imp e1 e')
         e2 <- substFull f2 e'
         h0'' <- mapM (substFull f2) h0'
         h1' <- mapM (substFull f2) h1
-        pure (e2,h0''++h1',composeFull f2 (composeFull f1 f0))
+        f <- composeFull f2 =<< composeFull f1 f0
+        pure (e2,h0''++h1',f)
     inferThm' ctx (IntroThm n e0 p) = do
         (s0,_) <- inferObj (snd3 ctx) e0
         (e1,h,f1) <- inferThm (addThm n e0 ctx) p
@@ -138,7 +143,7 @@ inferThm ctx p = traceErr ("checking proof " ++ show p) (inferThm' ctx p)
         (s0,t0) <- inferObj (snd3 ctx) e0
         (e1,h,f1) <- inferThm ctx p0
         ctx <- updateCtx f1 ctx
-        e1' <- simpObj (trd3 ctx) e1
+        e1' <- whnfTerm (trd3 ctx) e1
         case e1' of
             Forall x t e -> do
                 _ <- unifyTyp t t0

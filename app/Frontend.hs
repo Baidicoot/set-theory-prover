@@ -54,7 +54,7 @@ import Data.Binary (Binary,encode,decodeOrFail)
 import qualified Data.ByteString.Lazy as B
 
 newtype ConstObjs = ConstObjs (M.Map Name Monotype) deriving(Show,Binary,Semigroup)
-newtype DefObjs = DefObjs (M.Map Name (Monotype,DeBrujin)) deriving(Show,Binary,Semigroup)
+newtype DefObjs = DefObjs (M.Map Name (Monotype,Term)) deriving(Show,Binary,Semigroup)
 newtype ConstSorts = Sorts (S.Set Name) deriving(Show,Binary,Semigroup)
 newtype Axioms = Axioms (M.Map Name Term) deriving(Show,Binary,Semigroup)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
@@ -166,7 +166,7 @@ insertConst :: Name -> Monotype -> ProverState -> ProverState
 insertConst n t (grammar, (s,ConstObjs o,d,a), goal) =
     (grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
 
-insertDef :: Name -> Monotype -> DeBrujin -> ProverState -> ProverState
+insertDef :: Name -> Monotype -> Term -> ProverState -> ProverState
 insertDef n m t (grammar, (s,o,DefObjs d,a), goal) =
     (grammar, (s,o,DefObjs (M.insert n (m,t) d),a), goal)
 
@@ -198,8 +198,12 @@ inferProp (_, env, _) prop = do
         (Right t, names') -> putNames names' >> pure t
         (Left err, _) -> throwExt (Checker (show err) (show prop))
 
-evalProp :: ProverState -> Term -> Prover DeBrujin
-evalProp (_, env, _) prop = pure (evalObj (envToCtx env) prop)
+evalProp :: ProverState -> Term -> Prover Term
+evalProp (_, env, _) prop = do
+    names <- getNames
+    case evalTerm names (envToCtx env) prop of
+        (Right t, names') -> putNames names' >> pure t
+        (Left err, _) -> throwExt (Checker (show err) (show prop))
 
 refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
 refine (_, _, Nothing) _ = throwExt NotInProofMode
