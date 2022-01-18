@@ -21,6 +21,7 @@ module Frontend
     , runExt
     , runActionExt
     , runOutputExt
+    , newKeywordExt
     , TracedError
     , ProverState)
     where
@@ -60,15 +61,15 @@ newtype Axioms = Axioms (M.Map Name Term) deriving(Show,Binary,Semigroup)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
 
 -- names, reference grammar, global environment, current proof and local names for each goal (if applicable)
-type ProverState = (Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
+type ProverState = (Keywords, Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
 
-serializeProverState :: (Grammar,Env) -> Prover B.ByteString
-serializeProverState (g,e) = pure (encode (g,e))
+serializeProverState :: (Keywords, Grammar,Env) -> Prover B.ByteString
+serializeProverState (kw,g,e) = pure (encode (kw,g,e))
 
-deserializeProverState :: B.ByteString -> Prover (Grammar,Env)
+deserializeProverState :: B.ByteString -> Prover (Keywords, Grammar,Env)
 deserializeProverState b = case decodeOrFail b of
     Left (_,_,e) -> throwExt (Serializer e)
-    Right (b,_,(g,e)) | B.null b -> pure (g,e)
+    Right (b,_,(kw,g,e)) | B.null b -> pure (kw,g,e)
     Right _ -> throwExt (Serializer "did not consume entire input")
 
 type Prover = ExceptT TracedError (StateT ([Name],Maybe Grammar) L.Lua)
@@ -80,7 +81,7 @@ putNames :: [Name] -> Prover ()
 putNames ns = modify (\(_,g) -> (ns,g))
 
 compileGrammar :: ProverState -> Prover Grammar
-compileGrammar (grammar, _, _) = do
+compileGrammar (_,grammar, _, _) = do
     x <- gets snd
     case x of
         Just g -> pure g
@@ -152,23 +153,26 @@ envToElabCtx (Sorts s, ConstObjs o, DefObjs d, Axioms a) =
     in sorts `M.union` consts `M.union` defs `M.union` axioms
 
 initialState :: ProverState
-initialState = (grINIT, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
+initialState = (S.empty, grINIT, (Sorts mempty, ConstObjs mempty, DefObjs mempty, Axioms mempty), Nothing)
 
 insertAxiom :: Name -> Term -> ProverState -> ProverState
-insertAxiom n m (grammar, (s,o,d,Axioms a), goal) =
-    (grammar, (s,o,d,Axioms (M.insert n m a)), goal)
+insertAxiom n m (kw, grammar, (s,o,d,Axioms a), goal) =
+    (kw, grammar, (s,o,d,Axioms (M.insert n m a)), goal)
 
 insertSort :: Name -> ProverState -> ProverState
-insertSort n (grammar, (Sorts s,o,d,a), goal) =
-    (grammar, (Sorts (S.insert n s),o,d,a), goal)
+insertSort n (kw, grammar, (Sorts s,o,d,a), goal) =
+    (kw, grammar, (Sorts (S.insert n s),o,d,a), goal)
 
 insertConst :: Name -> Monotype -> ProverState -> ProverState
-insertConst n t (grammar, (s,ConstObjs o,d,a), goal) =
-    (grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
+insertConst n t (kw, grammar, (s,ConstObjs o,d,a), goal) =
+    (kw, grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
 
 insertDef :: Name -> Monotype -> Term -> ProverState -> ProverState
-insertDef n m t (grammar, (s,o,DefObjs d,a), goal) =
-    (grammar, (s,o,DefObjs (M.insert n (m,t) d),a), goal)
+insertDef n m t (kw, grammar, (s,o,DefObjs d,a), goal) =
+    (kw, grammar, (s,o,DefObjs (M.insert n (m,t) d),a), goal)
+
+insertKeyword :: Name -> ProverState -> ProverState
+insertKeyword k (kw, grammar, env, goal) = (S.insert k kw, grammar, env, goal)
 
 envToCtx :: Env -> Ctx
 envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
@@ -178,108 +182,108 @@ envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
     in (thmctx,objctx,defctx)
 
 checkProof :: ProverState -> Term -> Proof -> Prover [Term]
-checkProof (_, env, _) prop prf = do
+checkProof (_, _, env, _) prop prf = do
     names <- getNames
     case runProofCheck names (envToCtx env) prop prf of
         (Right (_, holes), names') -> putNames names' >> pure holes
         (Left err, _) -> throwExt (Checker (show err) (show prf))
 
 checkProp :: ProverState -> Monotype -> Term -> Prover Term
-checkProp (_, env, _) sort prop = do
+checkProp (_, _, env, _) sort prop = do
     names <- getNames
     case runPropCheck names (envToCtx env) sort prop of
         (Right t, names') -> putNames names' >> pure t
         (Left err, _) -> throwExt (Checker (show err) (show prop))
 
 inferProp :: ProverState -> Term -> Prover (Term,Monotype)
-inferProp (_, env, _) prop = do
+inferProp (_, _, env, _) prop = do
     names <- getNames
     case runPropInfer names (envToCtx env) prop of
         (Right t, names') -> putNames names' >> pure t
         (Left err, _) -> throwExt (Checker (show err) (show prop))
 
 evalProp :: ProverState -> Term -> Prover Term
-evalProp (_, env, _) prop = do
+evalProp (_, _, env, _) prop = do
     names <- getNames
     case evalTerm names (envToCtx env) prop of
         (Right t, names') -> putNames names' >> pure t
         (Left err, _) -> throwExt (Checker (show err) (show prop))
 
 refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
-refine (_, _, Nothing) _ = throwExt NotInProofMode
-refine (grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
+refine (_, _, _, Nothing) _ = throwExt NotInProofMode
+refine (kw, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
     Just prf' ->
-        let state' = (grammar, env, Just (prop, prf', ctxs'))
+        let state' = (kw, grammar, env, Just (prop, prf', ctxs'))
         in checkProof state' prop prf' >> pure state'
     Nothing -> throwExt NoOpenGoals
 
 addNotation :: ProverState -> Name -> [NotationBinding] -> SExpr -> Prover ProverState
-addNotation (grammar, env, p) n ns s =
+addNotation (kw, grammar, env, p) n ns s =
     case makeProdRule n ns s of
         Left err -> throwExt (Parser (show err))
-        Right prod -> uncompileGrammar >> pure (M.adjust (prod:) n grammar, env, p)
+        Right prod -> uncompileGrammar >> pure (kw, M.adjust (prod:) n grammar, env, p)
 
 beginProof :: ProverState -> Term -> Prover ProverState
-beginProof (grammar, env, Nothing) t = pure (grammar, env, Just (t, Hole, [mempty]))
+beginProof (kw, grammar, env, Nothing) t = pure (kw, grammar, env, Just (t, Hole, [mempty]))
 beginProof _ _ = throwExt InProofMode
 
 endProof :: ProverState -> T.Text -> Prover ProverState
-endProof (_, _, Nothing) t = throwExt NotInProofMode
-endProof (_, _, Just (_, _, _:_)) _ = throwExt OpenGoals
-endProof s@(_, _, Just (prop, _, [])) t =
+endProof (_, _, _, Nothing) t = throwExt NotInProofMode
+endProof (_, _, _, Just (_, _, _:_)) _ = throwExt OpenGoals
+endProof s@(_, _, _, Just (prop, _, [])) t =
     pure (insertAxiom t prop s)
 
 goalCtx :: ProverState -> Prover ElabCtx
-goalCtx (_, env, Just (_, _, ctx:_)) = pure (ctx `M.union` envToElabCtx env)
-goalCtx (_, _, Just _) = throwExt NoOpenGoals
+goalCtx (_, _, env, Just (_, _, ctx:_)) = pure (ctx `M.union` envToElabCtx env)
+goalCtx (_, _, _, Just _) = throwExt NoOpenGoals
 goalCtx _ = throwExt NotInProofMode
 
 envCtx :: ProverState -> ElabCtx
-envCtx (_, env, _) = envToElabCtx env
+envCtx (_, _, env, _) = envToElabCtx env
 
 parseProof :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
-parseProof s@(grammar, env, p) g ctx t =
-    case parse g ntPROOF t of
+parseProof s@(kw, grammar, env, p) g ctx t =
+    case parse kw g ntPROOF t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabProof s) of
-                ((Right o, ctx'), names') -> putNames names' >> pure (o, ctx', (grammar, env, p))
+                ((Right o, ctx'), names') -> putNames names' >> pure (o, ctx', (kw, grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
 parseMonotype :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
-parseMonotype (grammar, env, p) g ctx t =
-    case parse g ntSORT t of
+parseMonotype (kw, grammar, env, p) g ctx t =
+    case parse kw g ntSORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabMonotype s) of
-                ((Right o, _), names') -> putNames names' >> pure (o, (grammar, env, p))
+                ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
 parseProp :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Term, ProverState)
-parseProp (grammar, env, p) g ctx t =
-    case parse g ntPROP t of
+parseProp (kw, grammar, env, p) g ctx t =
+    case parse kw g ntPROP t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabProp s) of
-                ((Right o, _), names') -> putNames names' >> pure (o, (grammar, env, p))
+                ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
 parseSort :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
-parseSort (grammar, env, p) g ctx t =
-    case parse g ntSORT t of
+parseSort (kw, grammar, env, p) g ctx t =
+    case parse kw g ntSORT t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabSort s) of
-                ((Right o, _), names') -> putNames names' >> pure (o, (grammar, env, p))
+                ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
 parseNotationBinding :: ProverState -> Grammar -> T.Text -> Prover (Name, [NotationBinding])
-parseNotationBinding (grammar, env, p) g t =
-    case parse g ntNOTATION t of
+parseNotationBinding (kw, grammar, env, p) g t =
+    case parse kw g ntNOTATION t of
         Left err -> throwExt (Parser (show err))
         Right s -> do
             case runElaborator [] mempty (elabNotation s) of
@@ -287,14 +291,14 @@ parseNotationBinding (grammar, env, p) g t =
                 ((Left err, _), _) -> throwExt (Parser (show err))
 
 parseNotationProduct :: ProverState -> S.Set Name -> Name -> T.Text -> Prover SExpr
-parseNotationProduct (grammar, env, p) ps n t = do
+parseNotationProduct (kw, grammar, env, p) ps n t = do
     ns <- getNames
     g <- case elimLeftRec ns (addPlaceholders ps grammar) of
             (Right g,ns) -> do
                 putNames ns
                 pure g
             (Left err,ns) -> throwExt (Parser (show err))
-    case parse g n t of
+    case parse kw g n t of
         Left err -> throwExt (Parser (show err))
         Right s -> pure s
 
@@ -305,6 +309,9 @@ refineExt s t = do
         g <- compileGrammar s
         parseProof s g ctx t
     refine s (p, ctxs')
+
+newKeywordExt :: ProverState -> T.Text -> Prover ProverState
+newKeywordExt s t = pure (insertKeyword t s)
 
 newConstExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 newConstExt s (n, t) = do
@@ -352,36 +359,36 @@ endProofExt :: ProverState -> T.Text -> Prover ProverState
 endProofExt = endProof
 
 printGrammarExt :: ProverState -> Prover ProverState
-printGrammarExt s@(g, _, _) = liftIO (print (fmap (fmap snd) g)) >> pure s
+printGrammarExt s@(_, g, _, _) = liftIO (print (fmap (fmap snd) g)) >> pure s
 
 doneExt :: ProverState -> Prover ProverState
-doneExt (_, _, Nothing) = throwExt NotInProofMode
-doneExt (_, _, Just (_, _, _:_)) = throwExt OpenGoals
-doneExt s@(_, _, Just (prop, _, [])) =
+doneExt (_, _, _, Nothing) = throwExt NotInProofMode
+doneExt (_, _, _, Just (_, _, _:_)) = throwExt OpenGoals
+doneExt s@(_, _, _, Just (prop, _, [])) =
     pure s
 
 dieExt :: ProverState -> Prover ProverState
 dieExt _ = throwExt Terminated
 
-updatedState :: Grammar -> Env -> Prover ProverState
-updatedState g e = do
+updatedState :: Keywords -> Grammar -> Env -> Prover ProverState
+updatedState kw g e = do
     uncompileGrammar
-    pure (g,e,Nothing)
+    pure (kw, g,e,Nothing)
 
 includeStateExt :: ProverState -> B.ByteString -> Prover ProverState
-includeStateExt (g,e,Nothing) b = do
-    (g',e') <- deserializeProverState b
-    updatedState (g `M.union` g') (e <> e')
+includeStateExt (kw, g,e,Nothing) b = do
+    (kw', g',e') <- deserializeProverState b
+    updatedState (kw `S.union` kw') (g `M.union` g') (e <> e')
 includeStateExt _ _ = throwExt InProofMode
 
 loadStateExt :: ProverState -> B.ByteString -> Prover ProverState
-loadStateExt (_,_,Nothing) b = do
-    (g,e) <- deserializeProverState b
-    updatedState g e
+loadStateExt (_,_,_,Nothing) b = do
+    (kw,g,e) <- deserializeProverState b
+    updatedState kw g e
 loadStateExt _ _ = throwExt InProofMode
 
 dumpStateExt :: ProverState -> Prover (ProverState,B.ByteString)
-dumpStateExt (g,e,Nothing) = do
-    b <- serializeProverState (g,e)
-    pure ((g,e,Nothing),b)
+dumpStateExt (kw,g,e,Nothing) = do
+    b <- serializeProverState (kw,g,e)
+    pure ((kw,g,e,Nothing),b)
 dumpStateExt _ = throwExt InProofMode

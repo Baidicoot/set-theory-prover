@@ -36,6 +36,7 @@ runFile state filepath = L.run $ do
     L.registerHaskellFunction "beginProof" (runExt "beginProof" beginProofExt state)
     L.registerHaskellFunction "endProof" (runExt "endProof" endProofExt state)
     L.registerHaskellFunction "const" (curry $ runExt "const" newConstExt state)
+    L.registerHaskellFunction "keyword" (runExt "keyword" newKeywordExt state)
     L.registerHaskellFunction "notation" (curry $ runExt "notation" notationExt state)
     L.registerHaskellFunction "die" (runActionExt "die" dieExt state)
     L.registerHaskellFunction "printGrammar" (runActionExt "printGrammar" printGrammarExt state)
@@ -53,7 +54,7 @@ main = do
     args <- getArgs
     state <- newIORef (initialState,(initialNames,Nothing))
     runFile state (head args)
-    ((_,env,_),_) <- readIORef state
+    ((_,_,env,_),_) <- readIORef state
     putStrLn "exited with environment:"
     print env
     pure ()

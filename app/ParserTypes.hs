@@ -60,6 +60,7 @@ data TokKind
     = Ident
     | Bracket
     | Symbol
+    | Keyword
     | Escaped TokKind
     deriving(Eq,Ord,Show,Generic)
 
@@ -126,5 +127,7 @@ emptyRule :: ProdRule
 emptyRule = (Empty, [])
 
 type Grammar = M.Map Name [ProdRule]
+
+type Keywords = S.Set Name
 
 type ElabCtx = M.Map Name (Name, NameOrigin, NameLevel)

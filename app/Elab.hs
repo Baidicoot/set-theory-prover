@@ -111,7 +111,7 @@ elabProof (SExpr "introObj" [x,y,z]) = do
     (n', z') <- freshen n Local Prf (elabProof z)
     pure (IntroObj n' y' z')
 elabProof (SExpr "modPon" [x,y]) = do
-    x' <- elabProof x
+    x' <- error (show [x,y]) >> elabProof x
     y' <- elabProof y
     pure (ModPon x' y')
 elabProof (SExpr "uniElim" [x,y]) = do

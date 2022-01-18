@@ -65,7 +65,7 @@ doRewrite (Subst ns x) xs | length ns == length xs =
 doRewrite Single [x] = Just x
 doRewrite Empty [] = Just (Partial Single [])
 doRewrite Placeholder [STok (Tok (Escaped Ident) n)] = Just (SPlaceholder n)
-doRewrite RawSExpr [_,STok (Tok Ident n),SExpr _ xs,_] = Just (SExpr n xs)
+doRewrite RawSExpr [_,STok (Tok _ n),SExpr _ xs,_] = Just (SExpr n xs)
 doRewrite (ListCons n) [x,SExpr _ xs] = Just (SExpr n (x:xs))
 doRewrite (ListNull n) [] = Just (SExpr n [])
 doRewrite (Combine l f g) xs = do
@@ -171,9 +171,9 @@ runParserGenerator s = flip runState s . runExceptT
 runParser :: V.Vector Tok -> Grammar -> Parser a -> (Either ParseError a, V.Vector Tok)
 runParser s r = flip runState s . flip runReaderT r . runExceptT
 
-parse :: Grammar -> Name -> T.Text -> Either ParseError SExpr
-parse g n t =
-    let (a,b) = runParser (tokenize t) g (parseNonterminal n)
+parse :: S.Set Name -> Grammar -> Name -> T.Text -> Either ParseError SExpr
+parse kw g n t =
+    let (a,b) = runParser (tokenize kw t) g (parseNonterminal n)
     in if not (V.null b) then
             throwError (LeftoverInput b)
         else a
