@@ -24,7 +24,7 @@ notation("[PROOF `( [PROOF x] `) ]", "`x")
 notation("[PROOF `_ ]", "[hole]")
 notation("[PROOF `introThm [IDENT x] `: [PROP y] `, [PROOF z] ]", "[introThm `x `y `z]")
 notation("[PROOF `introObj [IDENT x] `: [SORT y] `, [PROOF z] ]", "[introObj `x `y `z]")
-notation("[PROOF `subst [PROP x] `in [PROOF y]]", "[uniElim `x `y]")
+notation("[PROOF `subst [PROP x] `in [PROOF y]]", "[uniElim `y `x]")
 notation("[PROOF [PROOF x] [PROOF y] ]", "[modPon `x `y]")
 
 const("True","Prop")

@@ -189,7 +189,7 @@ substMetaVarsTerm = SubstRenaming subst locs
     subst s (Forall n m t) = Forall n m <$> subst s t
     subst s (MetaVar n) = case M.lookup n s of
         Just t -> rename t
-        Nothing -> pure (Var n)
+        Nothing -> pure (MetaVar n)
     subst s x = pure x
 
     locs (Lam _ t) = locs t
