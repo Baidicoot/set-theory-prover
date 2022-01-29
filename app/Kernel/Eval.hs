@@ -28,12 +28,12 @@ unifyTerm ctx (MetaVar a) y | not (occurs a y) = pure (M.singleton a y,mempty)
 unifyTerm ctx x (MetaVar b) | not (occurs b x) = pure (M.singleton b x,mempty)
 unifyTerm ctx (App x y) (App z w) = do
     (t,m) <- unifyTerm ctx x z
-    (t',m') <- bind2 (unifyTerm ctx) (substRenaming substMetaVarsTerm t y) (substRenaming substMetaVarsTerm t z)
+    (t',m') <- bind2 (unifyTerm ctx) (substRenaming substMetaVarsTerm t y) (substRenaming substMetaVarsTerm t w)
     u <- composeTermSubst t' t
     pure (u,m'<+m)
 unifyTerm ctx (Imp x y) (Imp z w) = do
     (t,m) <- unifyTerm ctx x z
-    (t',m') <- bind2 (unifyTerm ctx) (substRenaming substMetaVarsTerm t y) (substRenaming substMetaVarsTerm t z)
+    (t',m') <- bind2 (unifyTerm ctx) (substRenaming substMetaVarsTerm t y) (substRenaming substMetaVarsTerm t w)
     u <- composeTermSubst t' t
     pure (u,m'<+m)
 unifyTerm ctx (Forall n0 m0 t0) (Forall n1 m1 t1) = do

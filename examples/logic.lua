@@ -62,7 +62,7 @@ const("C","Prop")
 
 -- currently Wrong Things are being unified; please fix
 
-beginProof("A => B")
-    refine("introThm H:C, _")
-    refine("H")
+beginProof("(∀x:Prop, x) => False")
+    refine("introThm H:tmp, _")
+    refine("subst False in H")
 endProof("trivial")
