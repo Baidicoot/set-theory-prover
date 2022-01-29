@@ -5,6 +5,7 @@ import qualified Data.Text as T
 import qualified Data.Set as S
 import qualified Data.Map as M
 import Control.Monad.State
+import Control.Monad.Trace
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Bifunctor
@@ -25,7 +26,7 @@ type Ctx = (ThmCtx,ObjCtx,DefCtx)
 names :: [Name]
 names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
 
-data ProofErrorType
+data ProofError
     = InfiniteType Name Monotype
     | MonotypeUnificationFail Monotype Monotype
     | PolytypeUnificationFail Polytype Polytype
@@ -41,15 +42,7 @@ data ProofErrorType
     | CantInferHigherOrder Name Proof
     deriving(Show)
 
-data ProofError = ProofError ProofErrorType [String] deriving(Show)
-
-type Infer = ExceptT ProofError (State ([Name], MetaVarTypes))
-
-throwErr :: ProofErrorType -> Infer a
-throwErr = throwError . flip ProofError []
-
-traceErr :: String -> Infer a -> Infer a
-traceErr n f = f `catchError` (\(ProofError e t) -> throwError (ProofError e (n:t)))
+type Infer = TraceT ProofError String (State ([Name], MetaVarTypes))
 
 fresh :: Infer Name
 fresh = do
@@ -64,8 +57,8 @@ discoverMetaVar x = do
     modify (second (M.insert x t))
     pure t
 
-runInfer :: ([Name], MetaVarTypes) -> Infer a -> (Either ProofError a, ([Name], MetaVarTypes))
-runInfer s = flip runState s . runExceptT
+runInfer :: ([Name], MetaVarTypes) -> Infer a -> (Either (ProofError,[String]) a, ([Name], MetaVarTypes))
+runInfer s = flip runState s . runTraceT
 
 fillHole :: Proof -> Proof -> Maybe Proof
 fillHole Hole p = pure p

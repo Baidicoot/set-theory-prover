@@ -10,6 +10,7 @@ import qualified Data.Set as S
 import Control.Monad
 import Control.Monad.Writer
 import Control.Monad.Except
+import Control.Monad.Trace
 
 import Data.Maybe (fromMaybe)
 
@@ -62,9 +63,9 @@ instThm t = do
     m <- mapM (\n -> (n,) . MetaVar <$> fresh) (S.toList (free @Term t))
     pure (subst (M.fromList m) t)
 
--- add things for checking props inside this
+-- demystify using good variable names
 checkThm :: Ctx -> Term -> Proof -> Infer (Term, [Term], FullSubst)
-checkThm ctx t p = traceErr ("checking " ++ show p ++ " proves " ++ show t) (checkThm' ctx t p)
+checkThm ctx t p = traceError ("checking " ++ show p ++ " proves " ++ show t) (checkThm' ctx t p)
     where
     checkThm' ctx e0 (IntroThm n t p) = do
         (s0,_) <- inferObj (snd3 ctx) t
@@ -111,14 +112,14 @@ checkThm ctx t p = traceErr ("checking " ++ show p ++ " proves " ++ show t) (che
         (e1',,f) <$> mapM (substFull f1) h
 
 inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
-inferThm ctx p = traceErr ("checking proof " ++ show p) (inferThm' ctx p)
+inferThm ctx p = traceError ("checking proof " ++ show p) (inferThm' ctx p)
     where
     inferThm' ctx (Axiom n) = case M.lookup n (fst3 ctx) of
         Just t -> (,[],mempty) <$> instThm t
-        Nothing -> throwErr (UnknownAxiom n)
+        Nothing -> throwError (UnknownAxiom n)
     inferThm' ctx (Param n) = case M.lookup n (fst3 ctx) of
         Just t -> (,[],mempty) <$> instThm t
-        Nothing -> throwErr (UnknownAxiom n)
+        Nothing -> throwError (UnknownAxiom n)
     inferThm' ctx (ModPon p0 p1) = do
         (e0,h0,f0) <- inferThm ctx p0
         p1' <- substFull f0 p1
@@ -149,7 +150,7 @@ inferThm ctx p = traceErr ("checking proof " ++ show p) (inferThm' ctx p)
                 _ <- unifyTyp t t0
                 e0' <- substFull f1 e0
                 pure (App (Lam x e) e0',h,f1)
-            _ -> throwErr (NotForall p0 e0)
+            _ -> throwError (NotForall p0 e0)
     {- maybe replace this with something that attempts to? -}
-    inferThm' ctx (IntroObj n t p) = throwErr (CantInferHigherOrder n p)
+    inferThm' ctx (IntroObj n t p) = throwError (CantInferHigherOrder n p)
     inferThm' ctx Hole = (\t -> (t,[t],(M.empty,M.empty))) . MetaVar <$> fresh

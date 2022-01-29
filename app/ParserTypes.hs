@@ -39,6 +39,8 @@ data ParseError
     | ElabError SExpr String
     | ScopeError Name
     | NamespaceError Name NameLevel NameLevel
+    | UnknownPlaceholder (S.Set Name)
+    | MultiplyBound Name
     deriving(Show)
 
 type ParserGenerator = ExceptT ParseError (State [Name])
@@ -80,11 +82,6 @@ instance Show Symbol where
     show AnyEscaped = "<Escaped>"
     show (Exact t) = show t
     show (Nonterminal x) = T.unpack x
-
-data NotationError
-    = UnknownPlaceholder (S.Set Name)
-    | MultiplyBound Name
-    deriving(Show)
 
 data NotationBinding
     = BindNonterminal Name Name

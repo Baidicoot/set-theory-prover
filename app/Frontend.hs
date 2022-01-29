@@ -26,8 +26,6 @@ module Frontend
     , ProverState)
     where
 
--- TODO: Check `Prop`s when asserting.
-
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.IORef
@@ -41,8 +39,10 @@ import ParserInit
 import Parser
 import Elab
 import Notation
+import Errors
 
 import Control.Monad.State
+import Control.Monad.Trace
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Exception
@@ -68,11 +68,11 @@ serializeProverState (kw,g,e) = pure (encode (kw,g,e))
 
 deserializeProverState :: B.ByteString -> Prover (Keywords, Grammar,Env)
 deserializeProverState b = case decodeOrFail b of
-    Left (_,_,e) -> throwExt (Serializer e)
+    Left (_,_,e) -> throwError (Serializer e)
     Right (b,_,(kw,g,e)) | B.null b -> pure (kw,g,e)
-    Right _ -> throwExt (Serializer "did not consume entire input")
+    Right _ -> throwError (Serializer "did not consume entire input")
 
-type Prover = ExceptT TracedError (StateT ([Name],Maybe Grammar) L.Lua)
+type Prover = TraceT NormalError String (StateT ([Name],Maybe Grammar) L.Lua)
 
 getNames :: Prover [Name]
 getNames = gets fst
@@ -91,36 +91,15 @@ compileGrammar (_,grammar, _, _) = do
                 (Right g,ns) -> do
                     put (ns,Just g)
                     pure g
-                (Left err,ns) -> throwExt (Parser (show err))
+                (Left err,ns) -> throwError (Parser err)
 
 uncompileGrammar :: Prover ()
 uncompileGrammar = modify (\(ns,_)->(ns,Nothing))
 
-data TracedError
-    = TracedError NormalError [(String,String)] deriving(Show)
-instance Exception TracedError
-
-data NormalError
-    = NotInProofMode
-    | InProofMode
-    | NoOpenGoals
-    | OpenGoals
-    | Terminated
-    | Parser String
-    | Checker String String
-    | Serializer String
-    deriving(Show)
-
-throwExt :: NormalError -> Prover a
-throwExt = throwError . flip TracedError []
-
-traceAs :: String -> String -> Prover a -> Prover a
-traceAs x i f = catchError f (\(TracedError e xs) -> throwError (TracedError e ((x,i):xs)))
-
 runExt :: Show i => String -> (ProverState -> i -> Prover ProverState) -> IORef (ProverState,([Name],Maybe Grammar)) -> i -> L.Lua L.NumResults
 runExt n f state i = do
     (s,ns) <- liftIO (readIORef state)
-    (s',ns') <- runProver (traceAs n (show i) $ f s i) ns
+    (s',ns') <- runProver (traceError n $ f s i) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
         Left err -> L.raiseError (show err)
@@ -128,7 +107,7 @@ runExt n f state i = do
 runActionExt :: String -> (ProverState -> Prover ProverState) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
 runActionExt n f state = do
     (s,ns) <- liftIO (readIORef state)
-    (s',ns') <- runProver (traceAs n "" $ f s) ns
+    (s',ns') <- runProver (traceError n $ f s) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
         Left err -> L.raiseError (show err)
@@ -136,13 +115,13 @@ runActionExt n f state = do
 runOutputExt :: L.Pushable o => String -> (ProverState -> Prover (ProverState, o)) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
 runOutputExt n f state = do
     (s,ns) <- liftIO (readIORef state)
-    (o,ns') <- runProver (traceAs n "" $ f s) ns
+    (o,ns') <- runProver (traceError n $ f s) ns
     case o of
         Right (s',o) -> liftIO (writeIORef state (s',ns')) >> L.push o >> pure 1
         Left err -> L.raiseError (show err)
 
-runProver :: Prover i -> ([Name],Maybe Grammar) -> L.Lua (Either TracedError i, ([Name],Maybe Grammar))
-runProver f = runStateT (runExceptT f)
+runProver :: Prover i -> ([Name],Maybe Grammar) -> L.Lua (Either (NormalError,[String]) i, ([Name],Maybe Grammar))
+runProver f = runStateT (runTraceT f)
 
 envToElabCtx :: Env -> ElabCtx
 envToElabCtx (Sorts s, ConstObjs o, DefObjs d, Axioms a) =
@@ -184,111 +163,111 @@ envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
 checkProof :: ProverState -> Term -> Proof -> Prover [Term]
 checkProof (_, _, env, _) prop prf = do
     names <- getNames
-    case runProofCheck names (envToCtx env) prop prf of
-        (Right (_, holes), names') -> putNames names' >> pure holes
-        (Left err, _) -> throwExt (Checker (show err) (show prf))
+    let (err,names') = runProofCheck names (envToCtx env) prop prf
+    putNames names'
+    fmap snd . withTraceT Checker $ liftTrace err
 
 checkProp :: ProverState -> Monotype -> Term -> Prover Term
 checkProp (_, _, env, _) sort prop = do
     names <- getNames
-    case runPropCheck names (envToCtx env) sort prop of
-        (Right t, names') -> putNames names' >> pure t
-        (Left err, _) -> throwExt (Checker (show err) (show prop))
+    let (err,names') = runPropCheck names (envToCtx env) sort prop
+    putNames names'
+    withTraceT Checker $ liftTrace err
 
 inferProp :: ProverState -> Term -> Prover (Term,Monotype)
 inferProp (_, _, env, _) prop = do
     names <- getNames
-    case runPropInfer names (envToCtx env) prop of
-        (Right t, names') -> putNames names' >> pure t
-        (Left err, _) -> throwExt (Checker (show err) (show prop))
+    let (err,names') = runPropInfer names (envToCtx env) prop
+    putNames names'
+    withTraceT Checker $ liftTrace err
 
 evalProp :: ProverState -> Term -> Prover Term
 evalProp (_, _, env, _) prop = do
     names <- getNames
-    case evalTerm names (envToCtx env) prop of
-        (Right t, names') -> putNames names' >> pure t
-        (Left err, _) -> throwExt (Checker (show err) (show prop))
+    let (err,names') = evalTerm names (envToCtx env) prop
+    putNames names'
+    withTraceT Checker $ liftTrace err
 
 refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
-refine (_, _, _, Nothing) _ = throwExt NotInProofMode
+refine (_, _, _, Nothing) _ = throwError NotInProofMode
 refine (kw, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
     Just prf' ->
         let state' = (kw, grammar, env, Just (prop, prf', ctxs'))
         in checkProof state' prop prf' >> pure state'
-    Nothing -> throwExt NoOpenGoals
+    Nothing -> throwError NoOpenGoals
 
 addNotation :: ProverState -> Name -> [NotationBinding] -> SExpr -> Prover ProverState
 addNotation (kw, grammar, env, p) n ns s =
     case makeProdRule n ns s of
-        Left err -> throwExt (Parser (show err))
+        Left err -> throwError (Parser err)
         Right prod -> uncompileGrammar >> pure (kw, M.adjust (prod:) n grammar, env, p)
 
 beginProof :: ProverState -> Term -> Prover ProverState
 beginProof (kw, grammar, env, Nothing) t = pure (kw, grammar, env, Just (t, Hole, [mempty]))
-beginProof _ _ = throwExt InProofMode
+beginProof _ _ = throwError InProofMode
 
 endProof :: ProverState -> T.Text -> Prover ProverState
-endProof (_, _, _, Nothing) t = throwExt NotInProofMode
-endProof (_, _, _, Just (_, _, _:_)) _ = throwExt OpenGoals
+endProof (_, _, _, Nothing) t = throwError NotInProofMode
+endProof (_, _, _, Just (_, _, _:_)) _ = throwError OpenGoals
 endProof s@(_, _, _, Just (prop, _, [])) t =
     pure (insertAxiom t prop s)
 
 goalCtx :: ProverState -> Prover ElabCtx
 goalCtx (_, _, env, Just (_, _, ctx:_)) = pure (ctx `M.union` envToElabCtx env)
-goalCtx (_, _, _, Just _) = throwExt NoOpenGoals
-goalCtx _ = throwExt NotInProofMode
+goalCtx (_, _, _, Just _) = throwError NoOpenGoals
+goalCtx _ = throwError NotInProofMode
 
 envCtx :: ProverState -> ElabCtx
 envCtx (_, _, env, _) = envToElabCtx env
 
 parseProof :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Proof, [ElabCtx], ProverState)
-parseProof s@(kw, grammar, env, p) g ctx t =
+parseProof s@(kw, grammar, env, p) g ctx t = do
     case parse kw g ntPROOF t of
-        Left err -> throwExt (Parser (show err))
+        Left err -> throwError (Parser err)
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabProof s) of
                 ((Right o, ctx'), names') -> putNames names' >> pure (o, ctx', (kw, grammar, env, p))
-                ((Left err, _), _) -> throwExt (Parser (show err))
+                ((Left err, _), _) -> throwError (Parser err)
 
 parseMonotype :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseMonotype (kw, grammar, env, p) g ctx t =
     case parse kw g ntSORT t of
-        Left err -> throwExt (Parser (show err))
+        Left err -> throwError (Parser err)
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabMonotype s) of
                 ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
-                ((Left err, _), _) -> throwExt (Parser (show err))
+                ((Left err, _), _) -> throwError (Parser err)
 
 parseProp :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Term, ProverState)
 parseProp (kw, grammar, env, p) g ctx t =
     case parse kw g ntPROP t of
-        Left err -> throwExt (Parser (show err))
+        Left err -> throwError (Parser err)
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabProp s) of
                 ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
-                ((Left err, _), _) -> throwExt (Parser (show err))
+                ((Left err, _), _) -> throwError (Parser err)
 
 parseSort :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Monotype, ProverState)
 parseSort (kw, grammar, env, p) g ctx t =
     case parse kw g ntSORT t of
-        Left err -> throwExt (Parser (show err))
+        Left err -> throwError (Parser err)
         Right s -> do
             names <- getNames
             case runElaborator names ctx (elabSort s) of
                 ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
-                ((Left err, _), _) -> throwExt (Parser (show err))
+                ((Left err, _), _) -> throwError (Parser err)
 
 parseNotationBinding :: ProverState -> Grammar -> T.Text -> Prover (Name, [NotationBinding])
 parseNotationBinding (kw, grammar, env, p) g t =
     case parse kw g ntNOTATION t of
-        Left err -> throwExt (Parser (show err))
+        Left err -> throwError (Parser err)
         Right s -> do
             case runElaborator [] mempty (elabNotation s) of
                 ((Right o, _), _) -> pure o
-                ((Left err, _), _) -> throwExt (Parser (show err))
+                ((Left err, _), _) -> throwError (Parser err)
 
 parseNotationProduct :: ProverState -> S.Set Name -> Name -> T.Text -> Prover SExpr
 parseNotationProduct (kw, grammar, env, p) ps n t = do
@@ -297,9 +276,9 @@ parseNotationProduct (kw, grammar, env, p) ps n t = do
             (Right g,ns) -> do
                 putNames ns
                 pure g
-            (Left err,ns) -> throwExt (Parser (show err))
+            (Left err,ns) -> throwError (Parser err)
     case parse kw g n t of
-        Left err -> throwExt (Parser (show err))
+        Left err -> throwError (Parser err)
         Right s -> pure s
 
 refineExt :: ProverState -> T.Text -> Prover ProverState
@@ -362,13 +341,13 @@ printGrammarExt :: ProverState -> Prover ProverState
 printGrammarExt s@(_, g, _, _) = liftIO (print (fmap (fmap snd) g)) >> pure s
 
 doneExt :: ProverState -> Prover ProverState
-doneExt (_, _, _, Nothing) = throwExt NotInProofMode
-doneExt (_, _, _, Just (_, _, _:_)) = throwExt OpenGoals
+doneExt (_, _, _, Nothing) = throwError NotInProofMode
+doneExt (_, _, _, Just (_, _, _:_)) = throwError OpenGoals
 doneExt s@(_, _, _, Just (prop, _, [])) =
     pure s
 
 dieExt :: ProverState -> Prover ProverState
-dieExt _ = throwExt Terminated
+dieExt _ = throwError Terminated
 
 updatedState :: Keywords -> Grammar -> Env -> Prover ProverState
 updatedState kw g e = do
@@ -379,16 +358,16 @@ includeStateExt :: ProverState -> B.ByteString -> Prover ProverState
 includeStateExt (kw, g,e,Nothing) b = do
     (kw', g',e') <- deserializeProverState b
     updatedState (kw `S.union` kw') (g `M.union` g') (e <> e')
-includeStateExt _ _ = throwExt InProofMode
+includeStateExt _ _ = throwError InProofMode
 
 loadStateExt :: ProverState -> B.ByteString -> Prover ProverState
 loadStateExt (_,_,_,Nothing) b = do
     (kw,g,e) <- deserializeProverState b
     updatedState kw g e
-loadStateExt _ _ = throwExt InProofMode
+loadStateExt _ _ = throwError InProofMode
 
 dumpStateExt :: ProverState -> Prover (ProverState,B.ByteString)
 dumpStateExt (kw,g,e,Nothing) = do
     b <- serializeProverState (kw,g,e)
     pure ((kw,g,e,Nothing),b)
-dumpStateExt _ = throwExt InProofMode
+dumpStateExt _ = throwError InProofMode

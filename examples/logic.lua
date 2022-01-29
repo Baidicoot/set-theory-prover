@@ -2,14 +2,14 @@ keyword("Prop")
 keyword("SORT")
 
 notation("[SORT `( [SORT x] `) ]", "`x")
-notation("[SORT Prop ]", "[prop]")
+notation("[SORT `Prop ]", "[prop]")
 notation("[SORT [SORT x] `-> [SORT y] ]", "[func `x `y]")
 
 keyword("_")
 keyword("λ")
 
 notation("[PROP `( [PROP x] `) ]", "`x")
-notation("[PROP _ ]", "[hole]")
+notation("[PROP `_ ]", "[hole]")
 notation("[PROP `λ [IDENT x] `. [PROP y] ]", "[lam `x `y]")
 notation("[PROP `∀ [IDENT x] `: [SORT y] `, [PROP z] ]", "[forall `x `y `z]")
 notation("[PROP [PROP x] `=> [PROP y] ]", "[imp `x `y]")
@@ -21,10 +21,10 @@ keyword("subst")
 keyword("in")
 
 notation("[PROOF `( [PROOF x] `) ]", "`x")
-notation("[PROOF _ ]", "[hole]")
-notation("[PROOF introThm [IDENT x] `: [PROP y] `, [PROOF z] ]", "[introThm `x `y `z]")
-notation("[PROOF introObj [IDENT x] `: [SORT y] `, [PROOF z] ]", "[introObj `x `y `z]")
-notation("[PROOF subst [PROP x] in [PROOF y]]", "[uniElim `x `y]")
+notation("[PROOF `_ ]", "[hole]")
+notation("[PROOF `introThm [IDENT x] `: [PROP y] `, [PROOF z] ]", "[introThm `x `y `z]")
+notation("[PROOF `introObj [IDENT x] `: [SORT y] `, [PROOF z] ]", "[introObj `x `y `z]")
+notation("[PROOF `subst [PROP x] `in [PROOF y]]", "[uniElim `x `y]")
 notation("[PROOF [PROOF x] [PROOF y] ]", "[modPon `x `y]")
 
 const("True","Prop")
@@ -54,5 +54,15 @@ notation("[PROP [PROP x] `<=> [PROP y] ]","(iff `x) `y")
 
 define("id","λ x. x")
 
-beginProof("True <=> True")
-    refine("subst")
+define("tmp","∀x:Prop, x")
+
+const("A","Prop")
+const("B","Prop")
+const("C","Prop")
+
+-- currently Wrong Things are being unified; please fix
+
+beginProof("A => B")
+    refine("introThm H:C, _")
+    refine("H")
+endProof("trivial")

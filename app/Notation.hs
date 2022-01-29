@@ -23,7 +23,7 @@ placeholderNonterminals = foldr (\case
     BindNonterminal s n -> S.insert s
     _ -> id) S.empty
 
-boundSymbols :: [NotationBinding] -> Either NotationError (S.Set Name)
+boundSymbols :: [NotationBinding] -> Either ParseError (S.Set Name)
 boundSymbols (BindNonterminal _ n:xs) = do
     ss <- boundSymbols xs
     if n `S.member` ss then
@@ -44,7 +44,7 @@ usedSymbols (SExpr _ xs) = mconcat (fmap usedSymbols xs)
 usedSymbols (STok (Tok (Escaped Ident) n)) = S.singleton n
 usedSymbols _ = mempty
 
-makeProdRule :: Name -> [NotationBinding] -> SExpr -> Either NotationError ProdRule
+makeProdRule :: Name -> [NotationBinding] -> SExpr -> Either ParseError ProdRule
 makeProdRule n ns s = do
     bound <- boundSymbols ns
     if S.null (usedSymbols s `S.difference` bound) then

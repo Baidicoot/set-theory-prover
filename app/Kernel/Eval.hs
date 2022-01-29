@@ -6,6 +6,8 @@ import Kernel.Types
 import Kernel.TypeCheck
 
 import Control.Monad
+import Control.Monad.Except
+import Control.Monad.Trace
 
 import qualified Data.Set as S
 import qualified Data.Map as M
@@ -43,7 +45,7 @@ unifyTerm ctx a b = do
     a' <- reduceWhnfTerm ctx a
     b' <- reduceWhnfTerm ctx b
     case (a',b') of
-        (Nothing,Nothing) -> throwErr (ObjectUnificationFail a b)
+        (Nothing,Nothing) -> throwError (ObjectUnificationFail a b)
         (Just a,Nothing) -> unifyTerm ctx a b
         (Nothing,Just b) -> unifyTerm ctx a b
         (Just a, Just b) -> unifyTerm ctx a b

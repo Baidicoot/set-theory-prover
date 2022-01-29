@@ -12,6 +12,7 @@ import qualified Data.Text as T
 import Control.Monad
 import Control.Monad.State
 import Control.Monad.Except
+import Control.Monad.Trace
 import Control.Monad.Reader
 
 import Kernel.Types
@@ -62,7 +63,7 @@ generalize ctx t = Polytype (free @Monotype t `S.difference` M.keysSet ctx) t
 bind :: Name -> Monotype -> Infer TypeSubst
 bind a t
     | t == TyVar a = pure M.empty
-    | occurs a t = throwErr $ InfiniteType a t
+    | occurs a t = throwError $ InfiniteType a t
     | otherwise = pure $ M.singleton a t
 
 {-
@@ -109,10 +110,10 @@ unifyTyp (Arr a b) (Arr c d) = do
 unifyTyp (TyVar a) b = bind a b
 unifyTyp a (TyVar b) = bind b a
 unifyTyp x y | x == y = pure M.empty
-unifyTyp x y = throwErr (MonotypeUnificationFail x y)
+unifyTyp x y = throwError (MonotypeUnificationFail x y)
 
 inferObj :: TypeCtx -> Term -> Infer (TypeSubst, Monotype)
-inferObj ctx t = traceErr ("inferring " ++ show t) (inferObj' ctx t)
+inferObj ctx t = traceError ("inferring " ++ show t) (inferObj' ctx t)
     where
     inferObj' ctx (Lam x e) = do
         t <- fmap TyVar fresh
@@ -123,7 +124,7 @@ inferObj ctx t = traceErr ("inferring " ++ show t) (inferObj' ctx t)
             Just s -> do
                 t <- instantiate s
                 pure (M.empty, t)
-            Nothing -> throwErr (NotInContext x)
+            Nothing -> throwError (NotInContext x)
     inferObj' ctx (MetaVar x) = do
         (_,ms) <- get
         case M.lookup x ms of
