@@ -43,7 +43,7 @@ executable set-theory-prover
         Notation,
         Errors,
         Control.Monad.Trace,
-        Showable
+        PrettyPrint
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

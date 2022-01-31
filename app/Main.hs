@@ -56,5 +56,5 @@ main = do
     runFile state (head args)
     ((_,_,env,_),_) <- readIORef state
     putStrLn "exited with environment:"
-    print env
+    putStrLn (showEnv env)
     pure ()

@@ -22,6 +22,7 @@ module Frontend
     , runActionExt
     , runOutputExt
     , newKeywordExt
+    , showEnv
     , TracedError
     , ProverState)
     where
@@ -40,6 +41,7 @@ import Parser
 import Elab
 import Notation
 import Errors
+import PrettyPrint
 
 import Control.Monad.State
 import Control.Monad.Trace
@@ -59,6 +61,9 @@ newtype DefObjs = DefObjs (M.Map Name (Polytype,Term)) deriving(Show,Binary,Semi
 newtype ConstSorts = Sorts (S.Set Name) deriving(Show,Binary,Semigroup)
 newtype Axioms = Axioms (M.Map Name Term) deriving(Show,Binary,Semigroup)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
+
+showEnv :: Env -> String
+showEnv = (\(x,y,_) -> showDefs y 0 ++ "\n\n" ++ showDefs x 0) . envToCtx
 
 -- names, reference grammar, global environment, current proof and local names for each goal (if applicable)
 type ProverState = (Keywords, Grammar, Env, Maybe (Term, Proof, [ElabCtx]))
@@ -102,7 +107,7 @@ runExt n f state i = do
     (s',ns') <- runProver (traceError n $ f s i) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
-        Left err -> L.raiseError (show err)
+        Left (err,tr) -> L.raiseError (showWith err (0::ShowCtx) ++ "\n" ++ unlines (reverse tr))
 
 runActionExt :: String -> (ProverState -> Prover ProverState) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
 runActionExt n f state = do
@@ -110,7 +115,7 @@ runActionExt n f state = do
     (s',ns') <- runProver (traceError n $ f s) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
-        Left err -> L.raiseError (show err)
+        Left (err,tr) -> L.raiseError (showWith err (0::ShowCtx) ++ "\n" ++ unlines (reverse tr))
 
 runOutputExt :: L.Pushable o => String -> (ProverState -> Prover (ProverState, o)) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
 runOutputExt n f state = do
@@ -118,7 +123,7 @@ runOutputExt n f state = do
     (o,ns') <- runProver (traceError n $ f s) ns
     case o of
         Right (s',o) -> liftIO (writeIORef state (s',ns')) >> L.push o >> pure 1
-        Left err -> L.raiseError (show err)
+        Left (err,tr) -> L.raiseError (showWith err (0::ShowCtx) ++ "\n" ++ unlines (reverse tr))
 
 runProver :: Prover i -> ([Name],Maybe Grammar) -> L.Lua (Either (NormalError,[String]) i, ([Name],Maybe Grammar))
 runProver f = runStateT (runTraceT f)
@@ -193,7 +198,10 @@ refine (_, _, _, Nothing) _ = throwError NotInProofMode
 refine (kw, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
     Just prf' ->
         let state' = (kw, grammar, env, Just (prop, prf', ctxs'))
-        in checkProof state' prop prf' >> pure state'
+        in do
+            holes <- checkProof state' prop prf'
+            liftIO (print holes)
+            pure state'
     Nothing -> throwError NoOpenGoals
 
 addNotation :: ProverState -> Name -> [NotationBinding] -> SExpr -> Prover ProverState
@@ -209,8 +217,8 @@ beginProof _ _ = throwError InProofMode
 endProof :: ProverState -> T.Text -> Prover ProverState
 endProof (_, _, _, Nothing) t = throwError NotInProofMode
 endProof (_, _, _, Just (_, _, _:_)) _ = throwError OpenGoals
-endProof s@(_, _, _, Just (prop, _, [])) t =
-    pure (insertAxiom t prop s)
+endProof s@(kw, gr, env, Just (prop, _, [])) t =
+    pure (insertAxiom t prop (kw, gr, env, Nothing))
 
 goalCtx :: ProverState -> Prover ElabCtx
 goalCtx (_, _, env, Just (_, _, ctx:_)) = pure (ctx `M.union` envToElabCtx env)
@@ -297,7 +305,7 @@ refineExt s t = do
         ctx <- goalCtx s
         g <- compileGrammar s
         parseProof s g ctx t
-    refine s (p, ctxs')
+    refine s' (p, ctxs')
 
 newKeywordExt :: ProverState -> T.Text -> Prover ProverState
 newKeywordExt s t = pure (insertKeyword t s)
@@ -366,7 +374,7 @@ updatedState kw g e = do
     pure (kw, g,e,Nothing)
 
 includeStateExt :: ProverState -> B.ByteString -> Prover ProverState
-includeStateExt (kw, g,e,Nothing) b = do
+includeStateExt (kw,g,e,Nothing) b = do
     (kw', g',e') <- deserializeProverState b
     updatedState (kw `S.union` kw') (g `M.union` g') (e <> e')
 includeStateExt _ _ = throwError InProofMode

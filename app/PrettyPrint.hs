@@ -1,13 +1,18 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-module Showable where
+{-# LANGUAGE FlexibleContexts #-}
+module PrettyPrint where
 
 import qualified Data.Text as T
 import qualified Data.Set as S
+import qualified Data.Map as M
+import qualified Data.Vector as V
 import Data.List
 import Data.Char
 
-import Kernel.Types
+import Kernel.Types hiding(Name)
+import ParserTypes
+import Errors
 
 class Showable t c where
     showWith :: t -> c -> String
@@ -31,8 +36,10 @@ instance Showable Monotype ShowCtx where
     showWith Prop x = "Prop"
 
 instance Showable Polytype ShowCtx where
-    showWith (Polytype xs t) x = "∀" ++ intercalate "," (show <$> S.toList xs) ++ ", "
-        ++ showWith t x
+    showWith (Polytype xs t) x
+        | S.null xs = showWith t x
+        | otherwise = "∀" ++ intercalate "," (T.unpack <$> S.toList xs)
+                ++ ", " ++ showWith t x
 
 instance Showable Term ShowCtx where
     showWith (Lam n b) x = "λ" ++ T.unpack n ++ ", " ++ showWith b (x+2)
@@ -77,3 +84,46 @@ instance Showable ProofError ShowCtx where
     showWith (UnknownAxiom n) x = "unknown name " ++ T.unpack n
     showWith (CantInferHigherOrder n m) x = "cannot infer type of " ++ T.unpack n
         ++ " in " ++ showWith m x
+
+instance Showable Tok ShowCtx where
+    showWith (Tok _ n) _ = "'" ++ T.unpack n ++ "'"
+
+instance Showable Symbol ShowCtx where
+    showWith (Exact t) x = showWith t x
+    showWith (Nonterminal n) _ = T.unpack n
+    showWith AnyEscaped _ = "_@Escaped"
+    showWith (Any k) _ = "_@" ++ show k
+
+instance Showable SExpr ShowCtx where
+    showWith (STok t) x = showWith t x
+    showWith (SExpr t xs) x = "(" ++ T.unpack t ++ " " ++ unwords (fmap (`showWith` x) xs) ++ ")"
+    showWith (SPlaceholder n) x = "`" ++ T.unpack n ++ "`"
+    showWith (Partial _ xs) x = "(partial " ++ unwords (fmap (`showWith` x) xs) ++ ")"
+
+instance Showable ParseError ShowCtx where
+    showWith (NotNonterminal n) _ = "unknown nonterminal " ++ T.unpack n
+    showWith (NotTerminal n) _ = "unknown terminal " ++ T.unpack n
+    showWith (NoMatch s t) x = "got " ++ showWith t x ++ ", expected" ++ showWith s x
+    showWith (NoSExpr s) x = "could not parse " ++ unwords (fmap (`showWith` x) s)
+    showWith EndOfInput x = "got end of input"
+    showWith (LeftoverInput xs) x = "got leftover input " ++ unwords ((`showWith` x) <$> V.toList xs)
+    showWith EmptyAlternative x = "no rules to parse"
+    showWith (ElabError s n) x = "expected " ++ n ++ " got " ++ showWith s x
+    showWith (ScopeError n) x = "name " ++ T.unpack n ++ " not in scope"
+    showWith (NamespaceError n r a) x = "expected " ++ show r ++ " but " ++ T.unpack n ++ " is " ++ show a
+    showWith (UnknownPlaceholder ns) x = "unknown placeholder(s) " ++ intercalate ", " (T.unpack <$> S.toList ns)
+    showWith (MultiplyBound n) x = "placeholder " ++ T.unpack n ++ " is multiply bound"
+
+instance Showable NormalError ShowCtx where
+    showWith NotInProofMode x = "not in proof mode"
+    showWith InProofMode x = "in proof mode"
+    showWith NoOpenGoals x = "no open goals"
+    showWith OpenGoals x = "open goals"
+    showWith Terminated x = "typechecker exited by user"
+    showWith (Parser e) x = showWith e x
+    showWith (Checker e) x = showWith e x
+    showWith (Serializer s) x = s
+
+showDefs :: (Showable a ShowCtx) => M.Map Name a -> ShowCtx -> String
+showDefs m x = intercalate "\n" $
+    (\(n,d) -> T.unpack n ++ " :: " ++ showWith d x) <$> M.toList m

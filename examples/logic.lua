@@ -64,3 +64,10 @@ beginProof("(∀x:Prop, x) => False")
     refine("introThm H:tmp, _")
     refine("subst False in H")
 endProof("trivial")
+
+-- proof checking is broken again, pls fix
+
+beginProof("True => False")
+    refine("introThm H:True, _")
+    refine("H")
+endProof("fails")
