@@ -11,6 +11,7 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 {- elaboration of parse trees into Kernel.Types structures -}
 
@@ -60,6 +61,11 @@ elabMonotype :: SExpr -> Elaborator Monotype
 elabMonotype x = do
     fvs <- unboundIdents x
     foldr (\n -> fmap snd . freshen n Implicit Sort) (elabSort x) fvs
+
+elabPolytype :: SExpr -> Elaborator Polytype
+elabPolytype x = do
+    fvs <- unboundIdents x
+    fmap (Polytype (S.fromList fvs)) $ foldr (\n -> fmap snd . freshen n Implicit Sort) (elabSort x) fvs
 
 elabBound :: SExpr -> NameLevel -> Elaborator (Name, NameOrigin)
 elabBound x@(STok (Tok Ident n)) = lookupIdent n
@@ -125,7 +131,7 @@ elabProof (SExpr "hole" []) = do
 elabProof x = do
     (n,o) <- elabBound x Prf
     case o of
-        Local -> pure (Param n)
+        Local -> pure (Axiom n)
         Implicit -> error "UNREACHABLE"
         Global -> pure (Axiom n)
 

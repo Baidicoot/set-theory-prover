@@ -6,6 +6,7 @@ module Kernel
     , runPropCheck
     , runPropInfer
     , evalTerm
+    , runGeneralize
     ) where
 {- namespacing, re-exports, etc -}
 
@@ -29,6 +30,9 @@ runPropInfer :: [Name] -> Ctx -> Term -> (Either (ProofError,[String]) (Term,Mon
 runPropInfer ns (_,ctx,_) t = (\(r, (ns,_)) -> case r of
     Left err -> (Left err, ns)
     Right (s,m) -> (Right (subst s t,m), ns)) $ runInfer (ns,mempty) (inferObj ctx t)
+
+runGeneralize :: Monotype -> Polytype
+runGeneralize = generalize mempty
 
 evalTerm :: [Name] -> Ctx -> Term -> (Either (ProofError,[String]) Term, [Name])
 evalTerm ns (_,_,ctx) t = (\(r, (ns,_)) -> case r of

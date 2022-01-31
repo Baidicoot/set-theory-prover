@@ -54,8 +54,8 @@ import Data.Binary (Binary,encode,decodeOrFail)
 
 import qualified Data.ByteString.Lazy as B
 
-newtype ConstObjs = ConstObjs (M.Map Name Monotype) deriving(Show,Binary,Semigroup)
-newtype DefObjs = DefObjs (M.Map Name (Monotype,Term)) deriving(Show,Binary,Semigroup)
+newtype ConstObjs = ConstObjs (M.Map Name Polytype) deriving(Show,Binary,Semigroup)
+newtype DefObjs = DefObjs (M.Map Name (Polytype,Term)) deriving(Show,Binary,Semigroup)
 newtype ConstSorts = Sorts (S.Set Name) deriving(Show,Binary,Semigroup)
 newtype Axioms = Axioms (M.Map Name Term) deriving(Show,Binary,Semigroup)
 type Env = (ConstSorts, ConstObjs, DefObjs, Axioms)
@@ -142,11 +142,11 @@ insertSort :: Name -> ProverState -> ProverState
 insertSort n (kw, grammar, (Sorts s,o,d,a), goal) =
     (kw, grammar, (Sorts (S.insert n s),o,d,a), goal)
 
-insertConst :: Name -> Monotype -> ProverState -> ProverState
+insertConst :: Name -> Polytype -> ProverState -> ProverState
 insertConst n t (kw, grammar, (s,ConstObjs o,d,a), goal) =
     (kw, grammar, (s,ConstObjs (M.insert n t o),d,a), goal)
 
-insertDef :: Name -> Monotype -> Term -> ProverState -> ProverState
+insertDef :: Name -> Polytype -> Term -> ProverState -> ProverState
 insertDef n m t (kw, grammar, (s,o,DefObjs d,a), goal) =
     (kw, grammar, (s,o,DefObjs (M.insert n (m,t) d),a), goal)
 
@@ -155,7 +155,7 @@ insertKeyword k (kw, grammar, env, goal) = (S.insert k kw, grammar, env, goal)
 
 envToCtx :: Env -> Ctx
 envToCtx (_, ConstObjs objs, DefObjs defobjs, Axioms ax) =
-    let objctx = fmap (Polytype mempty) (objs `M.union` fmap fst defobjs)
+    let objctx = objs `M.union` fmap fst defobjs
         defctx = fmap snd defobjs
         thmctx = ax
     in (thmctx,objctx,defctx)
@@ -260,6 +260,16 @@ parseSort (kw, grammar, env, p) g ctx t =
                 ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
                 ((Left err, _), _) -> throwError (Parser err)
 
+parsePolytype :: ProverState -> Grammar -> ElabCtx -> T.Text -> Prover (Polytype, ProverState)
+parsePolytype (kw, grammar, env, p) g ctx t =
+    case parse kw g ntSORT t of
+        Left err -> throwError (Parser err)
+        Right s -> do
+            names <- getNames
+            case runElaborator names ctx (elabPolytype s) of
+                ((Right o, _), names') -> putNames names' >> pure (o, (kw, grammar, env, p))
+                ((Left err, _), _) -> throwError (Parser err)
+
 parseNotationBinding :: ProverState -> Grammar -> T.Text -> Prover (Name, [NotationBinding])
 parseNotationBinding (kw, grammar, env, p) g t =
     case parse kw g ntNOTATION t of
@@ -292,12 +302,13 @@ refineExt s t = do
 newKeywordExt :: ProverState -> T.Text -> Prover ProverState
 newKeywordExt s t = pure (insertKeyword t s)
 
+-- maybe add a flag to check if polytype constants should be allowed
 newConstExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 newConstExt s (n, t) = do
     (m, s') <- do
         g <- compileGrammar s
         parseSort s g (envCtx s) t
-    pure (insertConst n m s')
+    pure (insertConst n (Polytype mempty m) s')
 
 defineExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 defineExt s (n, d) = do
@@ -306,7 +317,7 @@ defineExt s (n, d) = do
         parseProp s g (envCtx s) d
     (df',m) <- inferProp s' df
     db <- evalProp s' df
-    pure (insertDef n m db s')
+    pure (insertDef n (runGeneralize m) db s')
 
 assertExt :: ProverState -> (T.Text, T.Text) -> Prover ProverState
 assertExt s (n, t) = do

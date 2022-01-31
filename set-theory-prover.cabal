@@ -42,7 +42,8 @@ executable set-theory-prover
         ParserInit,
         Notation,
         Errors,
-        Control.Monad.Trace
+        Control.Monad.Trace,
+        Showable
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

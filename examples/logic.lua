@@ -60,8 +60,6 @@ const("A","Prop")
 const("B","Prop")
 const("C","Prop")
 
--- currently Wrong Things are being unified; please fix
-
 beginProof("(∀x:Prop, x) => False")
     refine("introThm H:tmp, _")
     refine("subst False in H")

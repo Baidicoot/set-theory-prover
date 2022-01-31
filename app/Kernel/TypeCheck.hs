@@ -4,7 +4,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
-module Kernel.TypeCheck (inferObj, unifyTyp, checkObj) where
+module Kernel.TypeCheck (inferObj, unifyTyp, checkObj, generalize) where
 
 import qualified Data.Map as M
 import qualified Data.Set as S

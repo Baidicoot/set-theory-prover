@@ -111,9 +111,6 @@ inferThm ctx proof = traceError ("checking proof " ++ show proof) (inferThm' ctx
     inferThm' ctx (Axiom axName) = case M.lookup axName (fst3 ctx) of
         Just thm -> (,[],mempty) <$> instThm thm
         Nothing -> throwError (UnknownAxiom axName)
-    inferThm' ctx (Param axName) = case M.lookup axName (fst3 ctx) of
-        Just thm -> (,[],mempty) <$> instThm thm
-        Nothing -> throwError (UnknownAxiom axName)
     inferThm' ctx (ModPon func arg) = do
         (funcTy,holes,f0) <- inferThm ctx func
         arg <- substFull f0 arg

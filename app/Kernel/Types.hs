@@ -38,7 +38,6 @@ data ProofError
     | DoesNotMatch Proof Term
     | NotForall Proof Term
     | UnknownAxiom Name
-    | UnscopedDeBrujin Int
     | CantInferHigherOrder Name Proof
     deriving(Show)
 
@@ -103,7 +102,6 @@ data Proof
     | UniElim Proof Term
     | IntroObj Name Monotype Proof
     | Axiom Name
-    | Param Name
     | Hole
     deriving(Show,Generic)
 
