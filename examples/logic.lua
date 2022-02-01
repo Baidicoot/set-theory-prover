@@ -30,7 +30,7 @@ notation("[PROOF [PROOF x] [PROOF y] ]", "[modPon `x `y]")
 const("True","Prop")
 const("False","Prop")
 
-assert("trivial","True")
+assert("unit","True")
 
 const("and","Prop -> (Prop -> Prop)")
 const("or","Prop -> (Prop -> Prop)")
@@ -60,14 +60,8 @@ const("A","Prop")
 const("B","Prop")
 const("C","Prop")
 
-beginProof("(∀x:Prop, x) => False")
-    refine("introThm H:tmp, _")
-    refine("subst False in H")
-endProof("trivial")
-
 -- proof checking is broken again, pls fix
 
 beginProof("True => False")
-    refine("introThm H:True, _")
-    refine("H")
+    refine("introThm H:True, H")
 endProof("fails")

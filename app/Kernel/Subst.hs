@@ -149,6 +149,7 @@ instance Renamable Term where
     replace n x (Var m) | m == n = Var x
     replace _ _ x = x
 
+{-
 data SubstRenaming a b = SubstRenaming
     { substRenaming :: Subst a -> b -> Infer b
     , locations :: a -> S.Set Name
@@ -157,48 +158,50 @@ data SubstRenaming a b = SubstRenaming
 {- LEFT-BIASED COMPOSITION -}
 composeRenamingSubst :: SubstRenaming a a -> Subst a -> Subst a -> Infer (Subst a)
 composeRenamingSubst (SubstRenaming subst _) f g = M.union f <$> traverse (subst f) g
+-}
 
-substVarsTerm :: SubstRenaming Term Term
-substVarsTerm = SubstRenaming subst locs
-    where
-    subst s (Lam n t) = Lam n <$> subst s t
-    subst s (Let n t0 t1) = liftM2 (Let n) (subst s t0) (subst s t1)
-    subst s (App t0 t1) = liftM2 App (subst s t0) (subst s t1)
-    subst s (Imp t0 t1) = liftM2 Imp (subst s t0) (subst s t1)
-    subst s (Forall n m t) = Forall n m <$> subst s t
-    subst s (Var n) = case M.lookup n s of
-        Just t -> rename t
-        Nothing -> pure (Var n)
-    subst s x = pure x
+substVars :: Subst Term -> Term -> Infer Term
+substVars s (Lam n t) = Lam n <$> substVars s t
+substVars s (Let n t0 t1) = liftM2 (Let n) (substVars s t0) (substVars s t1)
+substVars s (App t0 t1) = liftM2 App (substVars s t0) (substVars s t1)
+substVars s (Imp t0 t1) = liftM2 Imp (substVars s t0) (substVars s t1)
+substVars s (Forall n m t) = Forall n m <$> substVars s t
+substVars s (Var n) = case M.lookup n s of
+    Just t -> rename t
+    Nothing -> pure (Var n)
+substVars s x = pure x
 
-    locs (Lam n t) = S.delete n (locs t)
-    locs (Let n t0 t1) = S.delete n (locs t0 `S.union` locs t1)
-    locs (App t0 t1) = locs t0 `S.union` locs t1
-    locs (Imp t0 t1) = locs t0 `S.union` locs t1
-    locs (Forall n _ t) = S.delete n (locs t)
-    locs (Var n) = S.singleton n
-    locs _ = S.empty
+substMeta :: Subst Term -> Term -> Infer Term
+substMeta s (Lam n t) = Lam n <$> substMeta s t
+substMeta s (Let n t0 t1) = liftM2 (Let n) (substMeta s t0) (substMeta s t1)
+substMeta s (App t0 t1) = liftM2 App (substMeta s t0) (substMeta s t1)
+substMeta s (Imp t0 t1) = liftM2 Imp (substMeta s t0) (substMeta s t1)
+substMeta s (Forall n m t) = Forall n m <$> substMeta s t
+substMeta s (MetaVar n) = case M.lookup n s of
+    Just t -> rename t
+    Nothing -> pure (MetaVar n)
+substMeta s x = pure x
 
-substMetaVarsTerm :: SubstRenaming Term Term
-substMetaVarsTerm = SubstRenaming subst locs
-    where
-    subst s (Lam n t) = Lam n <$> subst s t
-    subst s (Let n t0 t1) = liftM2 (Let n) (subst s t0) (subst s t1)
-    subst s (App t0 t1) = liftM2 App (subst s t0) (subst s t1)
-    subst s (Imp t0 t1) = liftM2 Imp (subst s t0) (subst s t1)
-    subst s (Forall n m t) = Forall n m <$> subst s t
-    subst s (MetaVar n) = case M.lookup n s of
-        Just t -> rename t
-        Nothing -> pure (MetaVar n)
-    subst s x = pure x
+freeVars :: Term -> S.Set Name
+freeVars (Lam n t) = S.delete n (freeVars t)
+freeVars (Let n t0 t1) = S.delete n (freeVars t0 `S.union` freeVars t1)
+freeVars (App t0 t1) = freeVars t0 `S.union` freeVars t1
+freeVars (Imp t0 t1) = freeVars t0 `S.union` freeVars t1
+freeVars (Forall n _ t) = S.delete n (freeVars t)
+freeVars (Var n) = S.singleton n
+freeVars _ = S.empty
 
-    locs (Lam _ t) = locs t
-    locs (Let _ t0 t1) = locs t0 `S.union` locs t1
-    locs (App t0 t1) = locs t0 `S.union` locs t1
-    locs (Imp t0 t1) = locs t0 `S.union` locs t1
-    locs (Forall _ _ t) = locs t
-    locs (MetaVar n) = S.singleton n
-    locs _ = S.empty
+metaVars :: Term -> S.Set Name
+metaVars (Lam _ t) = metaVars t
+metaVars (Let _ t0 t1) = metaVars t0 `S.union` metaVars t1
+metaVars (App t0 t1) = metaVars t0 `S.union` metaVars t1
+metaVars (Imp t0 t1) = metaVars t0 `S.union` metaVars t1
+metaVars (Forall _ _ t) = metaVars t
+metaVars (MetaVar n) = S.singleton n
+metaVars _ = S.empty
+
+composeTermSubst :: TermSubst -> TermSubst -> Infer TermSubst
+composeTermSubst f g = (<>f) <$> traverse (substMeta f) g
 
 {-
 instance (Container a c,Substitutable b c) => Substitutable b a where

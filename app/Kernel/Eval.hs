@@ -14,13 +14,10 @@ import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 
 occurs :: Name -> Term -> Bool
-occurs n x = S.member n (locations substMetaVarsTerm x)
+occurs n x = S.member n (metaVars x)
 
 bind2 :: Monad m => (a -> b -> m c) -> m a -> m b -> m c
 bind2 f x y = liftM2 (,) x y >>= uncurry f
-
-composeTermSubst :: TermSubst -> TermSubst -> Infer TermSubst
-composeTermSubst f g = (<>g) <$> traverse (substRenaming substMetaVarsTerm f) g
 
 unifyTerm :: DefCtx -> Term -> Term -> Infer (TermSubst, TypeSubst)
 unifyTerm ctx x y | x == y = pure mempty
@@ -28,12 +25,12 @@ unifyTerm ctx (MetaVar a) y | not (occurs a y) = pure (M.singleton a y,mempty)
 unifyTerm ctx x (MetaVar b) | not (occurs b x) = pure (M.singleton b x,mempty)
 unifyTerm ctx (App x y) (App z w) = do
     (t,m) <- unifyTerm ctx x z
-    (t',m') <- bind2 (unifyTerm ctx) (substRenaming substMetaVarsTerm t y) (substRenaming substMetaVarsTerm t w)
+    (t',m') <- bind2 (unifyTerm ctx) (substMeta t y) (substMeta t w)
     u <- composeTermSubst t' t
     pure (u,m'<+m)
 unifyTerm ctx (Imp x y) (Imp z w) = do
     (t,m) <- unifyTerm ctx x z
-    (t',m') <- bind2 (unifyTerm ctx) (substRenaming substMetaVarsTerm t y) (substRenaming substMetaVarsTerm t w)
+    (t',m') <- bind2 (unifyTerm ctx) (substMeta t y) (substMeta t w)
     u <- composeTermSubst t' t
     pure (u,m'<+m)
 unifyTerm ctx (Forall n0 m0 t0) (Forall n1 m1 t1) = do
@@ -54,7 +51,7 @@ reduceWhnfTerm :: DefCtx -> Term -> Infer (Maybe Term)
 reduceWhnfTerm ctx (App f x) = do
     f' <- whnfTerm ctx f
     case f' of
-      Lam v d -> fmap Just . whnfTerm ctx =<< substRenaming substVarsTerm (M.singleton v x) d
+      Lam v d -> fmap Just . whnfTerm ctx =<< substVars (M.singleton v x) d
       _ -> pure Nothing
 reduceWhnfTerm ctx (Var n) = pure (M.lookup n ctx)
 reduceWhnfTerm _ _ = pure Nothing
@@ -63,7 +60,7 @@ whnfTerm :: DefCtx -> Term -> Infer Term
 whnfTerm ctx (App f x) = do
     f' <- whnfTerm ctx f
     case f' of
-        Lam v d -> whnfTerm ctx =<< substRenaming substVarsTerm (M.singleton v x) d
+        Lam v d -> whnfTerm ctx =<< substVars (M.singleton v x) d
         x -> pure x
 whnfTerm ctx (Var n) = pure (fromMaybe (Var n) (M.lookup n ctx))
 whnfTerm _ x = pure x

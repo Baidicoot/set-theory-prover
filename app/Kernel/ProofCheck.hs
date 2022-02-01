@@ -28,12 +28,12 @@ This actually checks the proofs
 type FullSubst = (TermSubst, TypeSubst)
 
 substFull :: (Container t Term,Substitutable Monotype t) => FullSubst -> t -> Infer t
-substFull (d,s) t = mapC (substRenaming substMetaVarsTerm d) (subst s t)
+substFull (d,s) t = mapC (substMeta d) (subst s t)
 
 {- left-biased composition -}
 composeFull :: FullSubst -> FullSubst -> Infer FullSubst
 composeFull (d0,s0) (d1,s1) = (,composeSubst s0 s1) <$>
-    composeRenamingSubst substMetaVarsTerm (subst s1 d0) (subst s0 d1)
+    composeTermSubst (subst s1 d0) (subst s0 d1)
 
 fst3 :: (a,b,c) -> a
 fst3 (a,_,_) = a
@@ -61,18 +61,18 @@ updateCtx f (a,b,c) = do
 instThm :: Term -> Infer Term
 instThm t = do
     m <- mapM (\n -> (n,) . MetaVar <$> fresh) (S.toList (free @Term t))
-    pure (subst (M.fromList m) t)
+    substMeta (M.fromList m) t
 
 -- demystify using good variable names
 checkThm :: Ctx -> Term -> Proof -> Infer (Term, [Term], FullSubst)
-checkThm ctx theorem proof = traceError ("checking " ++ show proof ++ " proves " ++ show theorem)
-    (checkThm' ctx theorem proof)
+checkThm context theorem proof = traceError ("checking " ++ show proof ++ " proves " ++ show theorem)
+    (checkThm' context theorem proof)
     where
     checkThm' ctx thm (IntroThm varName varType prf) = do
         (s0,_) <- inferObj (snd3 ctx) varType
         lhs <- MetaVar <$> fresh
         rhs <- MetaVar <$> fresh
-        f0 <- traceError (show (subst s0 thm) ++ " and " ++ show (Imp lhs rhs)) $ unifyTerm (trd3 ctx) (subst s0 thm) (Imp lhs rhs)
+        f0 <- unifyTerm (trd3 ctx) (subst s0 thm) (Imp lhs rhs)
         ctx <- updateCtx f0 ctx
         lhs <- substFull f0 lhs
         rhs <- substFull f0 rhs
@@ -106,7 +106,7 @@ checkThm ctx theorem proof = traceError ("checking " ++ show proof ++ " proves "
         (thm,,f) <$> mapM (substFull f1) holes
 
 inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
-inferThm ctx proof = traceError ("checking proof " ++ show proof) (inferThm' ctx proof)
+inferThm context proof = traceError ("checking proof " ++ show proof) (inferThm' context proof)
     where
     inferThm' ctx (Axiom axName) = case M.lookup axName (fst3 ctx) of
         Just thm -> (,[],mempty) <$> instThm thm
