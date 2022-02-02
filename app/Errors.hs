@@ -16,6 +16,7 @@ data NormalError
     | Serializer String
     deriving(Show)
 
-data TracedError
-    = TracedError NormalError [(String,String)] deriving(Show)
-instance Exception TracedError
+data NormalTrace
+    = CallingFunc String
+    | CheckerT ProofTrace
+    deriving(Show)

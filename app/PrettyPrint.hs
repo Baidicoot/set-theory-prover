@@ -124,6 +124,18 @@ instance Showable NormalError ShowCtx where
     showWith (Checker e) x = showWith e x
     showWith (Serializer s) x = s
 
+instance Showable NormalTrace ShowCtx where
+    showWith (CallingFunc n) x = "calling function '" ++ n ++ "'"
+    showWith (CheckerT e) x = showWith e x
+
+instance Showable ProofTrace ShowCtx where
+    showWith (CheckingProof p t) x = "checking" ++ showLine (x+2) ++ showWith p (x+2)
+        ++ "\nhas type" ++ showLine (x+2) ++ showWith t (x+2)
+    showWith (CheckingTerm p t) x = "checking" ++ showLine (x+2) ++ showWith p (x+2)
+        ++ "\nhas type" ++ showLine (x+2) ++ showWith t (x+2)
+    showWith (InferringProof p) x = "inferring type of" ++ showLine (x+2) ++ showWith p (x+2)
+    showWith (InferringTerm p) x = "inferring type of" ++ showLine (x+2) ++ showWith p (x+2)
+
 showDefs :: (Showable a ShowCtx) => M.Map Name a -> ShowCtx -> String
 showDefs m x = intercalate "\n" $
     (\(n,d) -> T.unpack n ++ " :: " ++ showWith d x) <$> M.toList m

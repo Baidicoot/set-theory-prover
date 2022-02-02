@@ -54,14 +54,10 @@ notation("[PROP [PROP x] `<=> [PROP y] ]","(iff `x) `y")
 
 define("id","λ x. x")
 
-define("tmp","∀x:Prop, x")
+-- sort out elab errors
 
-const("A","Prop")
-const("B","Prop")
-const("C","Prop")
-
--- proof checking is broken again, pls fix
-
-beginProof("True => False")
-    refine("introThm H:True, H")
-endProof("fails")
+beginProof("∀x:Prop, ∀y:Prop, (x <=> y) => (y <=> x)")
+    refine("introObj X:Prop, _")
+    refine("introObj Y:Prop, _")
+    refine("introThm Z:_, _")
+    refine("_ _")

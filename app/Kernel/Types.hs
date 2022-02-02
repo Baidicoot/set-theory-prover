@@ -41,7 +41,14 @@ data ProofError
     | CantInferHigherOrder Name Proof
     deriving(Show)
 
-type Infer = TraceT ProofError String (State ([Name], MetaVarTypes))
+data ProofTrace
+    = CheckingProof Proof Term
+    | CheckingTerm Term Monotype
+    | InferringProof Proof
+    | InferringTerm Term
+    deriving(Show)
+
+type Infer = TraceT ProofError ProofTrace (State ([Name], MetaVarTypes))
 
 fresh :: Infer Name
 fresh = do
@@ -56,7 +63,7 @@ discoverMetaVar x = do
     modify (second (M.insert x t))
     pure t
 
-runInfer :: ([Name], MetaVarTypes) -> Infer a -> (Either (ProofError,[String]) a, ([Name], MetaVarTypes))
+runInfer :: ([Name], MetaVarTypes) -> Infer a -> (Either (ProofError,[ProofTrace]) a, ([Name], MetaVarTypes))
 runInfer s = flip runState s . runTraceT
 
 fillHole :: Proof -> Proof -> Maybe Proof

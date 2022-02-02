@@ -8,7 +8,7 @@ module Control.Monad.Trace where
 import Control.Monad.Except
 import Control.Monad.State
 import Control.Applicative
-import Data.Bifunctor (first)
+import Data.Bifunctor (first,second)
 
 newtype TraceT e t m a = Trace (ExceptT (e,[t]) m a) deriving(Functor,Applicative,Monad)
 
@@ -32,5 +32,8 @@ liftTrace :: Monad m => Either (e,[t]) r -> TraceT e t m r
 liftTrace (Left e) = Trace (throwError e)
 liftTrace (Right r) = pure r
 
-withTraceT :: Functor m => (e -> e') -> TraceT e t m r -> TraceT e' t m r
-withTraceT f (Trace x) = Trace (withExceptT (first f) x)
+withTraceT :: Functor m => (t -> t') -> TraceT e t m r -> TraceT e t' m r
+withTraceT f (Trace x) = Trace (withExceptT (second (fmap f)) x)
+
+withErrorT :: Functor m => (e -> e') -> TraceT e t m r -> TraceT e' t m r
+withErrorT f (Trace x) = Trace (withExceptT (first f) x)

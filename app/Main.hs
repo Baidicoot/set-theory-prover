@@ -25,7 +25,7 @@ catchScriptError f = do
         L.Yield -> L.liftIO (putStrLn "YIELDING FROM SCRIPT FILE UNSUPPORTED")
         _ -> do
             err <- L.peek 1
-            L.liftIO (putStrLn ("script errored with: " ++ err))
+            L.liftIO (putStrLn ("ERROR:\n\n" ++ err))
 
 runFile :: IORef (ProverState,([Name],Maybe Grammar)) -> String -> IO ()
 runFile state filepath = L.run $ do
@@ -55,6 +55,6 @@ main = do
     state <- newIORef (initialState,(initialNames,Nothing))
     runFile state (head args)
     ((_,_,env,_),_) <- readIORef state
-    putStrLn "exited with environment:"
+    putStrLn "\nexited with environment:"
     putStrLn (showEnv env)
     pure ()

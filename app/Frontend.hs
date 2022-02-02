@@ -23,7 +23,6 @@ module Frontend
     , runOutputExt
     , newKeywordExt
     , showEnv
-    , TracedError
     , ProverState)
     where
 
@@ -48,7 +47,7 @@ import Control.Monad.Trace
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Exception
-import Data.List (partition)
+import Data.List (partition,intercalate)
 
 import qualified Foreign.Lua as L
 
@@ -77,7 +76,7 @@ deserializeProverState b = case decodeOrFail b of
     Right (b,_,(kw,g,e)) | B.null b -> pure (kw,g,e)
     Right _ -> throwError (Serializer "did not consume entire input")
 
-type Prover = TraceT NormalError String (StateT ([Name],Maybe Grammar) L.Lua)
+type Prover = TraceT NormalError NormalTrace (StateT ([Name],Maybe Grammar) L.Lua)
 
 getNames :: Prover [Name]
 getNames = gets fst
@@ -101,31 +100,34 @@ compileGrammar (_,grammar, _, _) = do
 uncompileGrammar :: Prover ()
 uncompileGrammar = modify (\(ns,_)->(ns,Nothing))
 
+errorToString :: NormalError -> [NormalTrace] -> String
+errorToString err tr = showWith err (0::ShowCtx) ++ concat (("\n\nwhile "++) . (`showWith` (0::ShowCtx)) <$> reverse tr)
+
 runExt :: Show i => String -> (ProverState -> i -> Prover ProverState) -> IORef (ProverState,([Name],Maybe Grammar)) -> i -> L.Lua L.NumResults
 runExt n f state i = do
     (s,ns) <- liftIO (readIORef state)
-    (s',ns') <- runProver (traceError n $ f s i) ns
+    (s',ns') <- runProver (traceError (CallingFunc n) $ f s i) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
-        Left (err,tr) -> L.raiseError (showWith err (0::ShowCtx) ++ "\n" ++ unlines (reverse tr))
+        Left (err,tr) -> L.raiseError (errorToString err tr)
 
 runActionExt :: String -> (ProverState -> Prover ProverState) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
 runActionExt n f state = do
     (s,ns) <- liftIO (readIORef state)
-    (s',ns') <- runProver (traceError n $ f s) ns
+    (s',ns') <- runProver (traceError (CallingFunc n) $ f s) ns
     case s' of
         Right s' -> liftIO (writeIORef state (s',ns')) >> pure 0
-        Left (err,tr) -> L.raiseError (showWith err (0::ShowCtx) ++ "\n" ++ unlines (reverse tr))
+        Left (err,tr) -> L.raiseError (errorToString err tr)
 
 runOutputExt :: L.Pushable o => String -> (ProverState -> Prover (ProverState, o)) -> IORef (ProverState,([Name],Maybe Grammar)) -> L.Lua L.NumResults
 runOutputExt n f state = do
     (s,ns) <- liftIO (readIORef state)
-    (o,ns') <- runProver (traceError n $ f s) ns
+    (o,ns') <- runProver (traceError (CallingFunc n) $ f s) ns
     case o of
         Right (s',o) -> liftIO (writeIORef state (s',ns')) >> L.push o >> pure 1
-        Left (err,tr) -> L.raiseError (showWith err (0::ShowCtx) ++ "\n" ++ unlines (reverse tr))
+        Left (err,tr) -> L.raiseError (errorToString err tr)
 
-runProver :: Prover i -> ([Name],Maybe Grammar) -> L.Lua (Either (NormalError,[String]) i, ([Name],Maybe Grammar))
+runProver :: Prover i -> ([Name],Maybe Grammar) -> L.Lua (Either (NormalError,[NormalTrace]) i, ([Name],Maybe Grammar))
 runProver f = runStateT (runTraceT f)
 
 envToElabCtx :: Env -> ElabCtx
@@ -170,28 +172,28 @@ checkProof (_, _, env, _) prop prf = do
     names <- getNames
     let (err,names') = runProofCheck names (envToCtx env) prop prf
     putNames names'
-    fmap snd . withTraceT Checker $ liftTrace err
+    fmap snd . withTraceT CheckerT . withErrorT Checker $ liftTrace err
 
 checkProp :: ProverState -> Monotype -> Term -> Prover Term
 checkProp (_, _, env, _) sort prop = do
     names <- getNames
     let (err,names') = runPropCheck names (envToCtx env) sort prop
     putNames names'
-    withTraceT Checker $ liftTrace err
+    withTraceT CheckerT . withErrorT Checker $ liftTrace err
 
 inferProp :: ProverState -> Term -> Prover (Term,Monotype)
 inferProp (_, _, env, _) prop = do
     names <- getNames
     let (err,names') = runPropInfer names (envToCtx env) prop
     putNames names'
-    withTraceT Checker $ liftTrace err
+    withTraceT CheckerT . withErrorT Checker $ liftTrace err
 
 evalProp :: ProverState -> Term -> Prover Term
 evalProp (_, _, env, _) prop = do
     names <- getNames
     let (err,names') = evalTerm names (envToCtx env) prop
     putNames names'
-    withTraceT Checker $ liftTrace err
+    withTraceT CheckerT . withErrorT Checker $ liftTrace err
 
 refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
 refine (_, _, _, Nothing) _ = throwError NotInProofMode
@@ -200,7 +202,7 @@ refine (kw, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf
         let state' = (kw, grammar, env, Just (prop, prf', ctxs'))
         in do
             holes <- checkProof state' prop prf'
-            liftIO (print holes)
+            liftIO . putStrLn . unlines $ fmap (`showWith` (0::ShowCtx)) holes
             pure state'
     Nothing -> throwError NoOpenGoals
 

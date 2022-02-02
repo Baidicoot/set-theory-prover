@@ -113,7 +113,7 @@ unifyTyp x y | x == y = pure M.empty
 unifyTyp x y = throwError (MonotypeUnificationFail x y)
 
 inferObj :: TypeCtx -> Term -> Infer (TypeSubst, Monotype)
-inferObj ctx t = traceError ("inferring " ++ show t) (inferObj' ctx t)
+inferObj ctx t = traceError (InferringTerm t) (inferObj' ctx t)
     where
     inferObj' ctx (Lam x e) = do
         t <- fmap TyVar fresh
@@ -155,7 +155,7 @@ inferObj ctx t = traceError ("inferring " ++ show t) (inferObj' ctx t)
         pure (s<+s', Prop)
 
 checkObj :: TypeCtx -> Term -> Monotype -> Infer (TypeSubst, Term)
-checkObj ctx e t = do
+checkObj ctx e t = traceError (CheckingTerm e t) $ do
     (s0,t') <- inferObj ctx e
     s1 <- unifyTyp (subst s0 t) t'
     pure (s1<+s0, subst (s1<+s0) e)

@@ -65,7 +65,7 @@ instThm t = do
 
 -- demystify using good variable names
 checkThm :: Ctx -> Term -> Proof -> Infer (Term, [Term], FullSubst)
-checkThm context theorem proof = traceError ("checking " ++ show proof ++ " proves " ++ show theorem)
+checkThm context theorem proof = traceError (CheckingProof proof theorem)
     (checkThm' context theorem proof)
     where
     checkThm' ctx thm (IntroThm varName varType prf) = do
@@ -106,7 +106,7 @@ checkThm context theorem proof = traceError ("checking " ++ show proof ++ " prov
         (thm,,f) <$> mapM (substFull f1) holes
 
 inferThm :: Ctx -> Proof -> Infer (Term, [Term], FullSubst)
-inferThm context proof = traceError ("checking proof " ++ show proof) (inferThm' context proof)
+inferThm context proof = traceError (InferringProof proof) (inferThm' context proof)
     where
     inferThm' ctx (Axiom axName) = case M.lookup axName (fst3 ctx) of
         Just thm -> (,[],mempty) <$> instThm thm
