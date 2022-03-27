@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 module Elab where
 
-import Kernel hiding (fresh,Name)
+import Kernel.Types hiding(fresh,Name)
 import ParserTypes
 
 import Control.Monad.State

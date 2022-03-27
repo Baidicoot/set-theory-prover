@@ -46,7 +46,8 @@ test-suite kernel-tests
         vector ^>=0.12.3.1,
         hslua ^>=1.3.0.2,
         binary ^>=0.8.9.0,
-        bytestring ^>=0.10.12.0
+        bytestring ^>=0.10.12.0,
+        hspec ^>=2.9.2
 
     hs-source-dirs:   app
     default-language: Haskell2010
@@ -63,7 +64,8 @@ test-suite parser-tests
         ParserTypes,
         ParserInit,
         Notation,
-        Elab
+        Elab,
+        Kernel.Types
     
     build-depends:
         base >=4.14.0.0,
@@ -73,7 +75,8 @@ test-suite parser-tests
         vector ^>=0.12.3.1,
         hslua ^>=1.3.0.2,
         binary ^>=0.8.9.0,
-        bytestring ^>=0.10.12.0
+        bytestring ^>=0.10.12.0,
+        hspec ^>=2.9.2
 
     hs-source-dirs:   app
     default-language: Haskell2010
@@ -111,7 +114,8 @@ test-suite full-tests
         vector ^>=0.12.3.1,
         hslua ^>=1.3.0.2,
         binary ^>=0.8.9.0,
-        bytestring ^>=0.10.12.0
+        bytestring ^>=0.10.12.0,
+        hspec ^>=2.9.2
 
     hs-source-dirs:   app
     default-language: Haskell2010
