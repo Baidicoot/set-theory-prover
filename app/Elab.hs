@@ -114,10 +114,10 @@ elabProof (SExpr "introThm" [x,y,z]) = do
 elabProof (SExpr "introObj" [x,y,z]) = do
     n <- elabIdent x
     y' <- elabSort y
-    (n', z') <- freshen n Local Prf (elabProof z)
+    (n', z') <- freshen n Local Obj (elabProof z)
     pure (IntroObj n' y' z')
 elabProof (SExpr "modPon" [x,y]) = do
-    x' <- error (show [x,y]) >> elabProof x
+    x' <- elabProof x
     y' <- elabProof y
     pure (ModPon x' y')
 elabProof (SExpr "uniElim" [x,y]) = do

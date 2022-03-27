@@ -202,7 +202,7 @@ refine (kw, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf
         let state' = (kw, grammar, env, Just (prop, prf', ctxs'))
         in do
             holes <- checkProof state' prop prf'
-            liftIO . putStrLn . unlines $ fmap (`showWith` (0::ShowCtx)) holes
+            liftIO . putStrLn . unlines $ fmap show ctxs'
             pure state'
     Nothing -> throwError NoOpenGoals
 

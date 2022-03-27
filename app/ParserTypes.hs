@@ -27,6 +27,7 @@ data NameOrigin
     = Local
     | Global
     | Implicit
+    deriving(Show)
 
 data ParseError
     = NotNonterminal Name

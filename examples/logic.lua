@@ -54,10 +54,7 @@ notation("[PROP [PROP x] `<=> [PROP y] ]","(iff `x) `y")
 
 define("id","λ x. x")
 
--- sort out elab errors
-
 beginProof("∀x:Prop, ∀y:Prop, (x <=> y) => (y <=> x)")
-    refine("introObj X:Prop, _")
-    refine("introObj Y:Prop, _")
-    refine("introThm Z:_, _")
-    refine("_ _")
+    refine("introObj x:Prop, _")
+    refine("introObj y:Prop, _")
+    refine("introThm Z: (x <=> y), _")

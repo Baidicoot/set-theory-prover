@@ -46,10 +46,7 @@
         \tag{Type Schemes}
     \\\\\bb{T} \bnfdef&
         x
-        \tag{Variables}
-    \\\alt&
-        c
-        \tag{Constants}
+        \tag{Constants \& Variables}
     \\\alt&
         M
         \tag{Metavariables}
@@ -57,44 +54,41 @@
         \lambda x, \bb{T}
         \tag{$\lambda$-Abstractions}
     \\\alt&
-        \Pi_{x : \bb{M}} \bb{T}
-        \tag{$\forall$-Quantifiers}
-    \\\alt&
         \bb{T} \bb{T}
         \tag{Application}
     \\\alt&
-        \bb{T} \Rightarrow \bb{T}
-        \tag{Implication}
-    \\\alt&
         \text{let $x$ = $\bb{T}$ in $\bb{T}$}
         \tag{Let-In}
+    \\\alt&
+        \Pi_{x : \bb{M}} \bb{T}
+        \tag{$\forall$-Quantifiers}
+    \\\alt&
+        \bb{T} \Rightarrow \bb{T}
+        \tag{Implication}
     \\\\\bb{P} \bnfdef&
-        a
+        x
         \tag{Axioms \& Variables}
     \\\alt&
-        \lambda (x : \bb{T}), \bb{P}
+        \_
+        \tag{Holes}
+    \\\alt&
+        \lambda_{\mathrm{Thm}} (x : \bb{T}), \bb{P}
         \tag{Implication Introduction}
     \\\alt&
         \bb{P} \$ \bb{P}
         \tag{Modus Ponens}
     \\\alt&
-        \lambda (x : \bb{S}), \bb{P}
+        \lambda_{\mathrm{Obj}} (x : \bb{S}), \bb{P}
         \tag{Universal Introduction}
     \\\alt&
         \bb{P}[x := \bb{T}]
         \tag{Universal Elimination}
-    \\\alt&
-        \_
-        \tag{Holes}
 \end{align*}
 
 \begin{mathpar}
-    \infer[Var]
+    \and \infer[Var]
         {(x, \tau) \in \Gamma}
         {\Gamma \vdash x : \tau}
-    \and \infer[Const]
-        {(c, \tau) \in \Gamma}
-        {\Gamma \vdash c : \tau}
     \and \infer[MetaVar]
         {(M, \tau) \in \Gamma}
         {\Gamma \vdash M : \tau}
@@ -120,19 +114,76 @@
 \end{mathpar}
 
 \begin{mathpar}
-    \infer[Axiom]
-        {(a, e) \in \Delta}
-        {\Delta \vdash a : e}
+    \infer[Param]
+        {(x, e) \in \Gamma}
+        {\Gamma \vdash x : e}
+    \and \infer[IntroThm]
+        {\Gamma \vdash e_0 : \mathbb{P}
+        \\\Gamma, (x, e_0) \vdash p : e_1}
+        {\Gamma \vdash \lambda_{\mathrm{Thm}} (x : e_0), p : e_0 \Rightarrow e_1}
     \and \infer[ModPon]
-        {\Delta \vdash p_0 : e_0 \Rightarrow e_1
-        \\\Delta \vdash p_1 : e_0}
-        {\Delta \vdash p_0 \$ p_1 : e_1}
+        {\Gamma \vdash p_0 : e_0 \Rightarrow e_1
+        \\\Gamma \vdash p_1 : e_0}
+        {\Gamma \vdash p_0 \$ p_1 : e_1}
+    \and \infer[IntroObj]
+        {\Gamma, (x : \tau) \vdash p : e}
+        {\Gamma \vdash \lambda_{\mathrm{Obj}} (x : \tau), p : \Pi_{x : \tau}, e}
     \and \infer[UniElim]
         {\Gamma \vdash e_0 : \tau
-        \\\Delta \vdash p : \Pi_{x : \tau} e_1}
-        {\Delta \vdash p[x := e_0] : e_1}
+        \\\Gamma \vdash p : \Pi_{x : \tau} e_1}
+        {\Gamma \vdash p[x := e_0] : e_1}
     \and \infer[Hole]
         { }
-        {\Delta \vdash \_ : e}
+        {\Gamma \vdash \_ : e}
 \end{mathpar}
+
+\begin{mathpar}
+    \infer[$\beta$-reduction]
+        {\Gamma \vdash e_0 \rightsquigarrow (\lambda x. e_2)
+        \\\Gamma \vdash e_2[x := e_1] \rightsquigarrow e_3}
+        {\Gamma \vdash e_0 e_1 \rightsquigarrow e_3}
+    \and \infer[Let-reduction]
+        {\Gamma \vdash e_1[x := e_0] \rightsquigarrow e_2}
+        {\Gamma \vdash \text{let $x$ = $e_0$ in $e_1$} \rightsquigarrow e_2}
+    \and \infer[BindL]
+        {M \notin x
+        \\\text{subst}(M,y) \in \Gamma
+        \\\Gamma \vdash y \sim x}
+        {\Gamma \vdash M \sim x}
+    \and \infer[BindR]
+        {M \notin x
+        \\\text{subst}(M,y) \in \Gamma
+        \\\Gamma \vdash x \sim y}
+        {\Gamma \vdash x \sim M}
+    \and \infer[UnifyLambda]
+        {\Gamma \vdash e_0 \sim e_1}
+        {\Gamma \vdash (\lambda x. e_0) \sim (\lambda x. e_1)}
+    \and \infer[UnifyForall]
+        {\Gamma \vdash e_0 \sim e_1}
+        {\Gamma \vdash (\Pi_{x : \tau}, e_0) \sim (\Pi_{x : \tau}, e_1)}
+    \and \infer[UnifyApp]
+        {\Gamma \vdash e_0 \sim e_2
+        \\\Gamma \vdash e_1 \sim e_3}
+        {\Gamma \vdash e_0 e_1 \sim e_2 e_3}
+    \and \infer[UnifyImp]
+        {\Gamma \vdash e_0 \sim e_2
+        \\\Gamma \vdash e_1 \sim e_3}
+        {\Gamma \vdash e_0 \Rightarrow e_1 \sim e_2 \Rightarrow e_3}
+    \and \infer[ReduceL]
+        {\Gamma \vdash e_0 \rightsquigarrow e_2
+        \\\Gamma \vdash e_2 \sim e_1}
+        {\Gamma \vdash e_0 \sim e_1}
+    \and \infer[ReduceR]
+        {\Gamma \vdash e_1 \rightsquigarrow e_2
+        \\\Gamma \vdash e_0 \sim e_2}
+        {\Gamma \vdash e_0 \sim e_1}
+    \and \infer[Refl]
+        { }
+        {\Gamma \vdash e \sim e}
+\end{mathpar}
+
+\begin{mathpar}
+
+\end{mathpar}
+
 \end{document}

@@ -86,6 +86,7 @@ checkThm context theorem proof = traceError (CheckingProof proof theorem)
         holes <- mapM (substFull f2) holes
         f <- composeFull f2 =<< composeFull f1 f0
         pure (Imp lhs rhs,holes,f)
+    -- replace with thing similar to inferThm section
     checkThm' ctx thm (IntroObj varName varType prf) = do
         restOfThm <- MetaVar <$> fresh
         f0 <- unifyTerm (trd3 ctx) thm (Forall varName varType restOfThm)
