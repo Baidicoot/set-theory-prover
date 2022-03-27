@@ -23,6 +23,99 @@ extra-source-files:
     README.md
     CHANGELOG.md
 
+test-suite kernel-tests
+    type:
+        exitcode-stdio-1.0
+
+    main-is:
+        Testing/Kernel.hs
+    
+    other-modules:
+        Kernel,
+        Kernel.Subst,
+        Kernel.Types,
+        Kernel.Eval,
+        Kernel.ProofCheck,
+        Kernel.TypeCheck
+    
+    build-depends:
+        base >=4.14.0.0,
+        mtl ^>=2.2.2,
+        containers ^>=0.6.5.1,
+        text ^>=1.2.4.1,
+        vector ^>=0.12.3.1,
+        hslua ^>=1.3.0.2,
+        binary ^>=0.8.9.0,
+        bytestring ^>=0.10.12.0
+
+    hs-source-dirs:   app
+    default-language: Haskell2010
+
+test-suite parser-tests
+    type:
+        exitcode-stdio-1.0
+
+    main-is:
+        Testing/Parser.hs
+    
+    other-modules:
+        Parser,
+        ParserTypes,
+        ParserInit,
+        Notation,
+        Elab
+    
+    build-depends:
+        base >=4.14.0.0,
+        mtl ^>=2.2.2,
+        containers ^>=0.6.5.1,
+        text ^>=1.2.4.1,
+        vector ^>=0.12.3.1,
+        hslua ^>=1.3.0.2,
+        binary ^>=0.8.9.0,
+        bytestring ^>=0.10.12.0
+
+    hs-source-dirs:   app
+    default-language: Haskell2010
+
+test-suite full-tests
+    type:
+        exitcode-stdio-1.0
+
+    main-is:
+        Testing/Full.hs
+    
+    other-modules:
+        Kernel,
+        Kernel.Subst,
+        Kernel.Eval,
+        Kernel.Types,
+        Kernel.ProofCheck,
+        Kernel.TypeCheck,
+        Parser,
+        ParserTypes,
+        Tokenize,
+        Elab,
+        Frontend,
+        ParserInit,
+        Notation,
+        Errors,
+        Control.Monad.Trace,
+        PrettyPrint
+    
+    build-depends:
+        base >=4.14.0.0,
+        mtl ^>=2.2.2,
+        containers ^>=0.6.5.1,
+        text ^>=1.2.4.1,
+        vector ^>=0.12.3.1,
+        hslua ^>=1.3.0.2,
+        binary ^>=0.8.9.0,
+        bytestring ^>=0.10.12.0
+
+    hs-source-dirs:   app
+    default-language: Haskell2010
+
 executable set-theory-prover
     main-is:          Main.hs
 
