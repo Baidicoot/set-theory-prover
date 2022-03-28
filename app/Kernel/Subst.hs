@@ -123,31 +123,28 @@ instance Substitutable Monotype Proof where
         (mapC :: (Monotype -> Writer (S.Set Name) Monotype) -> Proof -> Writer (S.Set Name) Proof)
         (\c -> tell (free @Monotype c) >> pure c)
 
-class Renamable a where
-    rename :: a -> Infer a
-    replace :: Name -> Name -> a -> a
+instance Substitutable Monotype Polytype where
+    subst s (Polytype v t) =
+        Polytype v (subst (M.filterWithKey (\k _ -> S.member k (M.keysSet s)) s) t)
+    free (Polytype v t) = free @Monotype t `S.difference` v
 
-instance Renamable Term where
-    rename (Lam n t) = do
+rename :: Term -> Infer Term
+rename = rename'
+    where
+    rename' (Lam n t) = do
         x <- fresh
         Lam x . replace n x <$> rename t
-    rename (Let n t0 t1) = do
+    rename' (Let n t0 t1) = do
         x <- fresh
         liftM2 (Let x) (rename t0) (replace n x <$> rename t1)
-    rename (App t0 t1) = liftM2 App (rename t0) (rename t1)
-    rename (Imp t0 t1) = liftM2 Imp (rename t0) (rename t1)
-    rename (Forall n m t) = do
+    rename' (App t0 t1) = liftM2 App (rename t0) (rename t1)
+    rename' (Imp t0 t1) = liftM2 Imp (rename t0) (rename t1)
+    rename' (Forall n m t) = do
         x <- fresh
         Forall x m . replace n x <$> rename t
-    rename x = pure x
+    rename' x = pure x
 
-    replace n x (Lam m t) = Lam m (replace n x t)
-    replace n x (Let m t0 t1) = Let m (replace n x t0) (replace n x t1)
-    replace n x (App t0 t1) = App (replace n x t0) (replace n x t1)
-    replace n x (Imp t0 t1) = Imp (replace n x t0) (replace n x t1)
-    replace n x (Forall m s t) = Forall m s (replace n x t)
-    replace n x (Var m) | m == n = Var x
-    replace _ _ x = x
+    replace n x = subst (M.singleton n (Var x))
 
 {-
 data SubstRenaming a b = SubstRenaming

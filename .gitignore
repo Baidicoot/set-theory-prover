@@ -2,3 +2,4 @@
 /diagrams/*
 !/diagrams/*.tex
 *.atp
+.ghc.*

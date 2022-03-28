@@ -36,7 +36,8 @@ test-suite kernel-tests
         Kernel.Types,
         Kernel.Eval,
         Kernel.ProofCheck,
-        Kernel.TypeCheck
+        Kernel.TypeCheck,
+        Control.Monad.Trace
     
     build-depends:
         base >=4.14.0.0,
@@ -65,7 +66,9 @@ test-suite parser-tests
         ParserInit,
         Notation,
         Elab,
-        Kernel.Types
+        Kernel.Types,
+        Tokenize,
+        Control.Monad.Trace
     
     build-depends:
         base >=4.14.0.0,

@@ -28,7 +28,6 @@ eatToken kw cs
     | isEscapeChar (T.head cs) = case eatToken kw (T.tail cs) of
         Just (Tok k t,cs') -> Just (Tok (Escaped k) t,cs')
         Nothing -> Nothing
-        --Just (Tok (Escaped Ident) $ T.takeWhile isIdentChar (T.tail cs), T.dropWhile isIdentChar (T.tail cs))
     | isIdentChar (T.head cs) =
         let t = T.takeWhile isIdentChar cs
             r = T.dropWhile isIdentChar cs

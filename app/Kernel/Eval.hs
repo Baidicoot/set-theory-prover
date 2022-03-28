@@ -35,7 +35,7 @@ unifyTerm ctx (Imp x y) (Imp z w) = do
     pure (u,m'<+m)
 unifyTerm ctx (Forall n0 m0 t0) (Forall n1 m1 t1) = do
     m <- unifyTyp m0 m1
-    t1' <- replace n1 n0 <$> rename t1
+    t1' <- subst (M.singleton n1 (Var n0)) <$> rename t1
     (t,m') <- unifyTerm ctx (subst m t0) (subst m t1')
     pure (t,m'<+m)
 unifyTerm ctx a b = do
@@ -53,14 +53,9 @@ reduceWhnfTerm ctx (App f x) = do
     case f' of
       Lam v d -> fmap Just . whnfTerm ctx =<< substVars (M.singleton v x) d
       _ -> pure Nothing
+reduceWhnfTerm ctx (Let n x b) = reduceWhnfTerm ctx (App (Lam n b) x)
 reduceWhnfTerm ctx (Var n) = pure (M.lookup n ctx)
 reduceWhnfTerm _ _ = pure Nothing
 
 whnfTerm :: DefCtx -> Term -> Infer Term
-whnfTerm ctx (App f x) = do
-    f' <- whnfTerm ctx f
-    case f' of
-        Lam v d -> whnfTerm ctx =<< substVars (M.singleton v x) d
-        x -> pure x
-whnfTerm ctx (Var n) = pure (fromMaybe (Var n) (M.lookup n ctx))
-whnfTerm _ x = pure x
+whnfTerm ctx x = fmap (fromMaybe x) (reduceWhnfTerm ctx x)

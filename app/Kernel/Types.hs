@@ -24,7 +24,7 @@ type DefCtx = M.Map Name Term
 type Ctx = (ThmCtx,ObjCtx,DefCtx)
 
 names :: [Name]
-names = [T.pack (v:show n) | v <- ['A'..'Z'], n <- [0..]]
+names = [T.pack (v:show n) | n <- [0..], v <- ['A'..'Z']]
 
 data ProofError
     = InfiniteType Name Monotype
@@ -39,14 +39,14 @@ data ProofError
     | NotForall Proof Term
     | UnknownAxiom Name
     | CantInferHigherOrder Name Proof
-    deriving(Show)
+    deriving(Show,Eq)
 
 data ProofTrace
     = CheckingProof Proof Term
     | CheckingTerm Term Monotype
     | InferringProof Proof
     | InferringTerm Term
-    deriving(Show)
+    deriving(Show,Eq)
 
 type Infer = TraceT ProofError ProofTrace (State ([Name], MetaVarTypes))
 
@@ -110,6 +110,6 @@ data Proof
     | IntroObj Name Monotype Proof
     | Axiom Name
     | Hole
-    deriving(Show,Generic)
+    deriving(Eq,Show,Generic)
 
 instance Binary Proof

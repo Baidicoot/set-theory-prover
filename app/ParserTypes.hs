@@ -42,7 +42,7 @@ data ParseError
     | NamespaceError Name NameLevel NameLevel
     | UnknownPlaceholder (S.Set Name)
     | MultiplyBound Name
-    deriving(Show)
+    deriving(Show,Eq)
 
 type ParserGenerator = ExceptT ParseError (State [Name])
 
@@ -93,7 +93,7 @@ data SExpr
     | STok Tok
     | SPlaceholder Name
     | Partial TreeRewrite [SExpr]
-    deriving(Generic)
+    deriving(Generic,Eq)
 
 instance Binary SExpr
 
@@ -117,7 +117,7 @@ data TreeRewrite
     | Combine Int TreeRewrite TreeRewrite
     | RewritePartial TreeRewrite
     | ConstructPartial TreeRewrite
-    deriving(Show,Generic)
+    deriving(Show,Generic,Eq)
 
 instance Binary TreeRewrite
 
