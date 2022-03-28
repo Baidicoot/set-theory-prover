@@ -8,7 +8,8 @@ import Parser
 import Tokenize
 import ParserInit
 import Elab
-import Kernel.Types (names)
+import Kernel.Types hiding(Name)
+import Notation
 
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -46,17 +47,6 @@ lrElimSpec = describe "left-recursion elimination" $ do
                 [(RewritePartial (Subst [Just "x"] (SPlaceholder "x")),
                     [Any Ident, Nonterminal "A0"])])])
 
-parserSpec :: Spec
-parserSpec = describe "parser" $ do
-    it "can parse s-expressions" $
-        parse mempty (makeLispGrammar "EXPR") "EXPR"
-            "[add 1 2 [mult 2 3] [mult [sub 3 4] 5]]"
-        == Right (SExpr "add" [STok $ Tok Ident "1", STok $ Tok Ident "2",
-            SExpr "mult" [STok $ Tok Ident "2", STok $ Tok Ident "3"],
-            SExpr "mult"
-                [SExpr "sub" [STok $ Tok Ident "3", STok $ Tok Ident "4"],
-                STok $ Tok Ident "5"]])
-
 runParserStack :: [Name] -> S.Set Name -> Grammar -> Name -> T.Text -> Either ParseError SExpr
 runParserStack ns kw g n t = do
     g' <- fst (elimLeftRec ns g)
@@ -78,10 +68,76 @@ parserStackSpec = describe "parser stack" $ do
             "(1) + (2 * 3)"
         == Right (SExpr "binop" [STok $ Tok Symbol "+", STok $ Tok Ident "1",
             SExpr "binop" [STok $ Tok Symbol "*", STok $ Tok Ident "2", STok $ Tok Ident "3"]])
+    it "can parse s-expressions" $
+        runParserStack names mempty (makeLispGrammar "EXPR")
+            "EXPR"
+            "[add 1 2 [mult 2 3] [mult [sub 3 4] 5]]"
+        == Right (SExpr "add" [STok $ Tok Ident "1", STok $ Tok Ident "2",
+            SExpr "mult" [STok $ Tok Ident "2", STok $ Tok Ident "3"],
+            SExpr "mult"
+                [SExpr "sub" [STok $ Tok Ident "3", STok $ Tok Ident "4"],
+                STok $ Tok Ident "5"]])
+    it "can parse non-regular languages" $
+        let g = M.fromList
+                [("S",
+                    [(Subst [Nothing,Just "x",Nothing,Nothing] (SExpr "b" [SPlaceholder "x"]),
+                        [Exact $ Tok Ident "b", Nonterminal "S", Exact $ Tok Ident "b", Exact $ Tok Ident "b"]),
+                    (Subst [Just "x"] (SExpr "as" [SPlaceholder "x"]),
+                        [Nonterminal "A"])]),
+                ("A",
+                    [(Subst [Nothing, Just "x"] (SExpr "a" [SPlaceholder "x"]),
+                        [Exact $ Tok Ident "a", Nonterminal "A"]),
+                    (Empty,
+                        [])])]
+        in
+        (case runParserStack names mempty g
+            "S"
+            "b b a a a b b b b" of
+            Right _ -> True
+            Left _ -> False)
+        && (case runParserStack names mempty g
+            "S"
+            "b b a a a b b b" of
+            Right _ -> False
+            Left _ -> True)
+        && (case runParserStack names mempty g
+            "S"
+            "b b b" of
+            Right _ -> True
+            Left _ -> False)
+
+notationSpec :: Spec
+notationSpec = describe "notations" $ do
+    it "can generate grammars from notations" $
+        makeProdRule
+            "expr"
+            [BindNonterminal "expr" "x",ExactToken $ Tok Symbol "+",BindNonterminal "expr" "y"]
+            (SExpr "add" [SPlaceholder "x", SPlaceholder "y"])
+        == Right (Subst [Just "x",Nothing,Just "y"] (SExpr "add" [SPlaceholder "x", SPlaceholder "y"]),
+            [Nonterminal "expr", Exact $ Tok Symbol "+", Nonterminal "expr"])
+
+elabSpec :: Spec
+elabSpec = describe "elaborator" $ do
+    it "can elaborate proofs" $
+        (parse mempty grINIT ntPROOF
+            "[introThm x [forall y [prop] y] x]" >>=
+            (fst . fst . runElaborator names mempty . elabProof))
+        == Right (IntroThm "B0" (Forall "A0" Prop (Var "A0")) (Axiom "B0"))
+    it "can elaborate propositions" $
+        (parse mempty grINIT ntPROP
+            "[forall x [prop] [imp x x]]" >>=
+            (fst . fst . runElaborator names mempty . elabProp))
+        == Right (Forall "D0" Prop (Imp (Var "D0") (Var "D0")))
+    it "can elaborate sorts" $
+        (parse mempty grINIT ntSORT
+            "[func A [func [prop] B]]" >>=
+            (fst . fst . runElaborator names mempty . elabMonotype))
+        == Right (Arr (TyVar "A0") (Arr Prop (TyVar "B0")))
 
 main :: IO ()
 main = hspec $ do
     tokenizeSpec
     lrElimSpec
-    parserSpec
     parserStackSpec
+    notationSpec
+    elabSpec
