@@ -86,18 +86,16 @@ checkThm context theorem proof = traceError (CheckingProof proof theorem)
         holes <- mapM (substFull f2) holes
         f <- composeFull f2 =<< composeFull f1 f0
         pure (Imp lhs rhs,holes,f)
-    -- replace with thing similar to inferThm section
     checkThm' ctx thm (IntroObj varName varType prf) = do
-        restOfThm <- MetaVar <$> fresh
-        f0 <- unifyTerm (trd3 ctx) thm (Forall varName varType restOfThm)
-        ctx <- updateCtx f0 ctx
-        restOfThm <- substFull f0 restOfThm
-        let varType' = subst (snd f0) varType
-        (_,holes,f1) <- checkThm (addObj varName (Polytype S.empty varType') ctx) restOfThm prf
-        restOfThm <- substFull f1 restOfThm
-        ctx <- updateCtx f1 ctx
-        f <- composeFull f1 f0
-        pure (Forall varName varType' restOfThm,holes,f)
+        thm <- whnfTerm (trd3 ctx) thm
+        case thm of
+            Forall varNameThm varTypeThm restOfThm -> do
+                s0 <- unifyTyp varType varTypeThm
+                let restOfThm' = subst (M.singleton varNameThm (Var varName)) restOfThm
+                (thm,holes,f0) <- checkThm (addObj varName (Polytype S.empty $ subst s0 varType) ctx) restOfThm' prf
+                f <- composeFull (mempty,s0) f0
+                pure (thm,holes,f)
+            _ -> throwError (NotForall (IntroObj varName varType prf) thm)
     checkThm' ctx thm prf = do
         (thm',holes,f0) <- inferThm ctx prf
         thm <- substFull f0 thm
