@@ -23,11 +23,6 @@ unifyTerm :: DefCtx -> Term -> Term -> Infer (TermSubst, TypeSubst)
 unifyTerm ctx x y | x == y = pure mempty
 unifyTerm ctx (MetaVar a) y | not (occurs a y) = pure (M.singleton a y,mempty)
 unifyTerm ctx x (MetaVar b) | not (occurs b x) = pure (M.singleton b x,mempty)
-unifyTerm ctx (App x y) (App z w) = do
-    (t,m) <- unifyTerm ctx x z
-    (t',m') <- bind2 (unifyTerm ctx) (substMeta t y) (substMeta t w)
-    u <- composeTermSubst t' t
-    pure (u,m'<+m)
 unifyTerm ctx (Imp x y) (Imp z w) = do
     (t,m) <- unifyTerm ctx x z
     (t',m') <- bind2 (unifyTerm ctx) (substMeta t y) (substMeta t w)
@@ -42,7 +37,13 @@ unifyTerm ctx a b = do
     a' <- reduceWhnfTerm ctx a
     b' <- reduceWhnfTerm ctx b
     case (a',b') of
-        (Nothing,Nothing) -> throwError (ObjectUnificationFail a b)
+        (Nothing,Nothing) -> case (a,b) of
+            (App x y,App z w) -> do
+                (t,m) <- unifyTerm ctx x z
+                (t',m') <- bind2 (unifyTerm ctx) (substMeta t y) (substMeta t w)
+                u <- composeTermSubst t' t
+                pure (u,m'<+m)
+            _ -> throwError (ObjectUnificationFail a b)
         (Just a,Nothing) -> unifyTerm ctx a b
         (Nothing,Just b) -> unifyTerm ctx a b
         (Just a, Just b) -> unifyTerm ctx a b
