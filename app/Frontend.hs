@@ -197,13 +197,14 @@ evalProp (_, _, env, _) prop = do
 
 refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
 refine (_, _, _, Nothing) _ = throwError NotInProofMode
-refine (kw, grammar, env, Just (prop, prf, ctxs)) (p, ctxs') = case fillHole prf p of
+refine (kw, grammar, env, Just (prop, prf, _:ctxs)) (p, ctxs') = case fillHole prf p of
     Just prf' ->
-        let state' = (kw, grammar, env, Just (prop, prf', ctxs'))
+        let state' = (kw, grammar, env, Just (prop, prf', ctxs ++ ctxs'))
         in do
             holes <- checkProof state' prop prf'
             pure state'
     Nothing -> throwError NoOpenGoals
+refine _ _ = throwError NoOpenGoals
 
 addNotation :: ProverState -> Name -> [NotationBinding] -> SExpr -> Prover ProverState
 addNotation (kw, grammar, env, p) n ns s =
