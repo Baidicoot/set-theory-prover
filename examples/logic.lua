@@ -54,12 +54,6 @@ notation("[PROP [PROP x] `<=> [PROP y] ]","(iff `x) `y")
 
 define("id","λ x. x")
 
-beginProof("∀x:Prop, x => x")
-    refine("introObj x:Prop, _")
-    refine("introThm H:x, _")
-    refine("H")
-endProof("identity")
-
 beginProof("∀x:Prop, ∀y:Prop, (x <=> y) => (y <=> x)")
     refine("introObj x:Prop, _")
     refine("introObj y:Prop, _")
@@ -67,4 +61,4 @@ beginProof("∀x:Prop, ∀y:Prop, (x <=> y) => (y <=> x)")
     refine("((subst _ in (subst _ in and_inj)) _) _")
     refine("(subst _ in (subst _ in and_proj_right)) Z")
     refine("(subst _ in (subst _ in and_proj_left)) Z")
-endProof("uuuhh")
+endProof("iff_refl")
