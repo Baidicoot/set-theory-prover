@@ -114,7 +114,8 @@ snd3 (_,b,_) = b
 proofInferSpec :: Spec
 proofInferSpec = describe "proof checking" $ do
     it "infers introThm correctly" $
-        fmap fst3 (runNames (inferThm (mempty,M.singleton "X" (Polytype mempty Prop),mempty)
+        fmap fst3 (runNames (inferThm
+            (mempty,M.singleton "X" (Polytype mempty Prop),mempty)
             (IntroThm "H" (Var "X") (Axiom "H"))))
         == Right (Imp (Var "X") (Var "X"))
 

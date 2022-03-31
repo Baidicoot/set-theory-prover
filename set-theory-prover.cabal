@@ -107,7 +107,8 @@ test-suite full-tests
         Notation,
         Errors,
         Control.Monad.Trace,
-        PrettyPrint
+        PrettyPrint,
+        RunLua
     
     build-depends:
         base >=4.14.0.0,
@@ -143,7 +144,8 @@ executable set-theory-prover
         Notation,
         Errors,
         Control.Monad.Trace,
-        PrettyPrint
+        PrettyPrint,
+        RunLua
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

@@ -17,7 +17,7 @@ isSpaceChar :: Char -> Bool
 isSpaceChar = isSpace
 
 isSymbolChar :: Char -> Bool
-isSymbolChar c = not (isIdentChar c) && not (isSpaceChar c)
+isSymbolChar c = not (isIdentChar c) && not (isSpaceChar c) && not (isBracketChar c)
 
 isIdentChar :: Char -> Bool
 isIdentChar c = isAlphaNum c || elem c "_"

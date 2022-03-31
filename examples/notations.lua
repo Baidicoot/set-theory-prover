@@ -1,7 +1,6 @@
 require "examples/utils"
 
 keyword("Prop")
-keyword("SORT")
 
 notation("[SORT `( [SORT x] `) ]", "`x")
 notation("[SORT `Prop ]", "[prop]")
