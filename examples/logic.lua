@@ -6,6 +6,8 @@ const("False","Prop")
 
 assert("unit","True")
 
+assert("explosion","∀x:Prop, False => x")
+
 const("and","Prop -> (Prop -> Prop)")
 const("or","Prop -> (Prop -> Prop)")
 
@@ -26,7 +28,9 @@ define("iff","λ x. λ y. ((x => y) ∧ (y => x))")
 
 notation("[PROP [PROP x] `<=> [PROP y] ]","(iff `x) `y")
 
-define("id","λ x. x")
+define("not","λ x. (x => False)")
+notation("[PROP `¬ [PROP x]]","not `x")
+assert("excluded_middle","∀x:Prop, ((¬x) ∨ x)")
 
 beginProof("∀x:Prop, ∀y:Prop, (x <=> y) => (y <=> x)")
     refine("introObj x:Prop, _")
@@ -36,3 +40,5 @@ beginProof("∀x:Prop, ∀y:Prop, (x <=> y) => (y <=> x)")
     refine("(subst _ in (subst _ in and_proj_right)) Z")
     refine("(subst _ in (subst _ in and_proj_left)) Z")
 endProof("iff_comm")
+
+export "logic"

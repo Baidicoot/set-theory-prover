@@ -53,4 +53,4 @@ main = do
             Left err -> putStrLn $ "ERROR:\n" ++ err
             Right env -> do
                 putStrLn "\nexited with environment:"
-                putStr env
+                putStrLn env
