@@ -7,16 +7,6 @@ const("member","Set -> (Set -> Prop)")
 notation("[PROP [PROP x] `∈ [PROP y]]","(member `x) `y")
 notation("[PROP [PROP x] `∉ [PROP y]]","¬(`x ∈ `y)")
 
-const("empty","Set")
-notation("[PROP `∅]","empty")
-assert("empty_is_empty","∀x:Set, (x ∉ ∅)")
-
-const("constrict","(Set -> Prop) -> (Set -> Set)")
-notation("[PROP `{ [IDENT x] `∈ [PROP y] `| [PROP z] `}]",
-    "(constrict (λ `x. `z)) `y")
-assert("constrict_prop",
-    "∀φ:(Set -> Prop), ∀x:Set, ∀y:Set, (y ∈ {a ∈ x | φ a}) <=> ((y ∈ x) ∧ (φ x))")
-
 beginProof("∀φ:Prop, ∀χ:Prop, ∀ψ:Prop, (φ ∧ χ) => ((φ => (χ => ψ)) => ψ)")
     refine("introObj φ:Prop, _")
     refine("introObj χ:Prop, _")
@@ -44,4 +34,4 @@ beginProof("∀x:Set, ¬(∀y:Set, (y ∉ y) <=> (y ∈ x))")
     refine("introThm H0:_, _")
     refine("introThm H1:_, _")
     refine("((subst _ in contradiction_loop) H1) H0")
-endProof("no_barber_set")
+endProof("no_russell_set")
