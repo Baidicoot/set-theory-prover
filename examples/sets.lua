@@ -23,8 +23,12 @@ beginProof("∀φ:Prop, (φ => ¬φ) => (((¬φ) => φ) => False)")
     refine("introThm H0:_, _")
     refine("introThm H1:_, _")
     refine("(((subst _ in (subst _ in (subst _ in or_proj))) _) _) (subst φ in excluded_middle)")
-        refine("introThm H2:_, H2 (H1 H2)")
-        refine("introThm H2:_, (H0 H2) H2")
+        
+        refine("introThm H2:_, _")
+        refine("H2 (H1 H2)")
+
+        refine("introThm H2:_, _")
+        refine("(H0 H2) H2")
 endProof("contradiction_loop")
 
 beginProof("∀x:Set, ¬(∀y:Set, (y ∉ y) <=> (y ∈ x))")

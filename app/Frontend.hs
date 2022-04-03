@@ -199,7 +199,7 @@ refine :: ProverState -> (Proof, [ElabCtx]) -> Prover ProverState
 refine (_, _, _, Nothing) _ = throwError NotInProofMode
 refine (kw, grammar, env, Just (prop, prf, _:ctxs)) (p, ctxs') = case fillHole prf p of
     Just prf' ->
-        let state' = (kw, grammar, env, Just (prop, prf', ctxs ++ ctxs'))
+        let state' = (kw, grammar, env, Just (prop, prf', ctxs' ++ ctxs))
         in do
             holes <- checkProof state' prop prf'
             pure state'
