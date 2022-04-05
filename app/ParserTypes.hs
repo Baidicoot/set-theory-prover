@@ -87,6 +87,7 @@ instance Show Symbol where
 data NotationBinding
     = BindNonterminal Name Name
     | ExactToken Tok
+    deriving(Show)
 
 data SExpr
     = SExpr Name [SExpr]
@@ -127,5 +128,7 @@ emptyRule = (Empty, [])
 type Grammar = M.Map Name [ProdRule]
 
 type Keywords = S.Set Name
+
+type NotationRHS = M.Map Name Name
 
 type ElabCtx = M.Map Name (Name, NameOrigin, NameLevel)

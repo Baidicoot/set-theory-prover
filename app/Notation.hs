@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
-module Notation (makeProdRule,placeholderNonterminals,addPlaceholders) where
+module Notation (makeProdRule,placeholders,addPlaceholders) where
 
 import ParserTypes
 import Control.Monad
@@ -18,9 +18,9 @@ bindSymbols (BindNonterminal _ n:xs) = Just n:bindSymbols xs
 bindSymbols (_:xs) = Nothing:bindSymbols xs
 bindSymbols [] = []
 
-placeholderNonterminals :: [NotationBinding] -> S.Set Name
-placeholderNonterminals = foldr (\case
-    BindNonterminal s n -> S.insert s
+placeholders :: [NotationBinding] -> S.Set Name
+placeholders = foldr (\case
+    BindNonterminal s n -> S.insert n
     _ -> id) S.empty
 
 boundSymbols :: [NotationBinding] -> Either ParseError (S.Set Name)
@@ -34,8 +34,8 @@ boundSymbols (_:xs) = boundSymbols xs
 boundSymbols _ = Right mempty
 
 addPlaceholders :: S.Set Name -> Grammar -> Grammar
-addPlaceholders ps = M.mapWithKey (\n gs ->
-    if n `S.member` ps then
+addPlaceholders ns = M.mapWithKey (\k gs ->
+    if k `S.member` ns then
         (Placeholder,[Any (Escaped Ident)]):gs
     else gs)
 

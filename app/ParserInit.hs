@@ -32,12 +32,16 @@ makeLispGrammar n = M.fromList
             ,[AnyEscaped])])
     ]
 
-grPROOF, grSORT, grPROP, grNOTATION, grIDENT :: Grammar
+grPROOF, grSORT, grPROP, grNOTATION, grIDENT, grKEYWORD :: Grammar
 grPROOF = makeLispGrammar ntPROOF
 grSORT = makeLispGrammar ntSORT
 grPROP = makeLispGrammar ntPROP
 grNOTATION = makeLispGrammar ntNOTATION
 grIDENT = M.fromList [(ntIDENT, [(Single,[Any Ident])])]
+grKEYWORD = M.fromList [(ntKEYWORD, [(Single,[Any Keyword])])]
 
 grINIT :: Grammar
-grINIT = M.unions [grPROOF, grSORT, grPROP, grNOTATION, grIDENT]
+grINIT = M.unions [grPROOF, grSORT, grPROP, grNOTATION, grIDENT, grKEYWORD]
+
+nrINIT :: NotationRHS
+nrINIT = M.fromList $ fmap (\x -> (x,x)) [ntPROOF,ntSORT,ntPROP,ntNOTATION,ntIDENT,ntKEYWORD]

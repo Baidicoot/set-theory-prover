@@ -28,6 +28,7 @@ loadAPI state = do
     L.registerHaskellFunction "endProof" (runExt "endProof" endProofExt state)
     L.registerHaskellFunction "const" (curry $ runExt "const" newConstExt state)
     L.registerHaskellFunction "keyword" (runExt "keyword" newKeywordExt state)
+    L.registerHaskellFunction "nonterminal" (curry $ runExt "nonterminal" newNonterminalExt state)
     L.registerHaskellFunction "notation" (curry $ runExt "notation" notationExt state)
     L.registerHaskellFunction "die" (runActionExt "die" dieExt state)
     L.registerHaskellFunction "printGrammar" (runActionExt "printGrammar" printGrammarExt state)
@@ -56,5 +57,5 @@ runProofScript prg = do
     case err of
         Just err -> pure (Left err,state)
         Nothing -> do
-            ((_,_,env,_),_) <- readIORef state
+            ((_,_,_,env,_),_) <- readIORef state
             pure (Right $ showEnv env,state)
